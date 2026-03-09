@@ -253,11 +253,11 @@ export function EntityForm({
 
   return (
     <form action={formAction} style={{ maxWidth: 480 }}>
-      {state && typeof state === "object" && "error" in state && (
+      {state && typeof state === "object" && "error" in state ? (
         <p className="view-error" role="alert" style={{ marginBottom: "1rem" }}>
           {(state as { error: string }).error}
         </p>
-      )}
+      ) : null}
       {entityId && <input type="hidden" name="entityId" value={entityId} />}
       {fields.map((field) => (
         <div key={field.id} className="form-group">

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { getEntityTicketDetails, updateOrderLineCheckIn } from "@/app/dashboard/actions";
+import { formatDate } from "@/lib/format";
 
 function formatAmount(cents: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -213,7 +214,7 @@ export function TicketSoldCell({
                         </td>
                         <td style={{ padding: "0.5rem 0.75rem", borderBottom: "1px solid #f1f5f9", fontSize: "0.875rem", textAlign: "right" }}>{formatAmount(line.amountCents * line.quantity)}</td>
                         <td style={{ padding: "0.5rem 0.75rem", borderBottom: "1px solid #f1f5f9", fontSize: "0.875rem" }}>{line.lineType === "donation" ? "Donation" : "Payment"}</td>
-                        <td style={{ padding: "0.5rem 0.75rem", borderBottom: "1px solid #f1f5f9", fontSize: "0.875rem", color: "#64748b" }}>{line.order.createdAt.toLocaleDateString()}</td>
+                        <td style={{ padding: "0.5rem 0.75rem", borderBottom: "1px solid #f1f5f9", fontSize: "0.875rem", color: "#64748b" }}>{formatDate(line.order.createdAt)}</td>
                       </tr>
                     ))}
                   </tbody>

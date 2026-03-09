@@ -7,6 +7,7 @@ import {
   getEntityPriceCents,
   getEntitySuggestedDonationCents,
 } from "@/lib/module-settings";
+import { formatDateIfApplicable } from "@/lib/format";
 
 type Field = {
   id: string;
@@ -153,8 +154,7 @@ function formatCellValue(
     return value.join(", ");
   }
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "object" && "toISOString" in (value as object)) {
-    return new Date((value as Date).toString()).toLocaleDateString();
-  }
+  const dateStr = formatDateIfApplicable(value, field.fieldType);
+  if (dateStr !== null) return dateStr;
   return String(value);
 }

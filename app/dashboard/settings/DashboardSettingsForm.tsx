@@ -37,8 +37,38 @@ export function DashboardSettingsForm({
   return (
     <form action={formAction} className="settings-form">
       <input type="hidden" name="sidebarOrder" value={JSON.stringify(sidebarOrder ?? modules.map((m) => m.slug))} />
-      <section className="settings-section">
-        <h2 className="settings-heading">Branding</h2>
+
+      <div className="settings-group settings-group-inline">
+        <h3 className="settings-group-title">Public modules</h3>
+        <p className="settings-group-desc">Show these modules on your public site at /s/your-slug/[url-slug]. Set payment type where submissions require payment or donation.</p>
+        <section className="settings-section">
+          {modules.map((m) => (
+            <div key={m.id} className="settings-public-module">
+              <label className="settings-check-label">
+                <input type="checkbox" name={`publicModule_enabled_${m.slug}`} value="1" defaultChecked={!!publicModules[m.slug]} />
+                <strong>{m.name}</strong>
+              </label>
+              <input id={`pub_slug_${m.slug}`} name={`publicModule_slug_${m.slug}`} type="text" defaultValue={publicModules[m.slug]?.slug ?? m.slug} placeholder="URL slug" className="settings-public-slug" />
+              <label className="settings-check-label">
+                <input type="checkbox" name={`publicModule_nav_${m.slug}`} value="1" defaultChecked={publicModules[m.slug]?.showInNav !== false} />
+                Show in nav
+              </label>
+              <label htmlFor={`pub_payment_${m.slug}`} className="settings-check-label" style={{ marginLeft: "0.5rem" }}>Payment type:</label>
+              <select id={`pub_payment_${m.slug}`} name={`publicModule_paymentType_${m.slug}`} defaultValue={modulePaymentTypes[m.slug] ?? ""} style={{ minWidth: "8rem" }}>
+                <option value="">None</option>
+                <option value="payment">Payment</option>
+                <option value="donation">Donation</option>
+              </select>
+            </div>
+          ))}
+        </section>
+      </div>
+
+      <div className="settings-group settings-group-inline">
+        <h3 className="settings-group-title">Dashboard & backend</h3>
+        <p className="settings-group-desc">Dashboard branding, default home after login, and API access.</p>
+        <section className="settings-section">
+          <h4 className="settings-heading">Branding</h4>
         <div className="form-group">
           <label htmlFor="brandingName">Dashboard name</label>
           <input
@@ -70,8 +100,8 @@ export function DashboardSettingsForm({
           />
         </div>
       </section>
-      <section className="settings-section">
-        <h2 className="settings-heading">Default home</h2>
+        <section className="settings-section">
+          <h4 className="settings-heading">Default home</h4>
         <div className="form-group">
           <label>After login, go to</label>
           <select name="homeType" id="homeType" defaultValue={home?.type ?? "none"}>
@@ -104,9 +134,9 @@ export function DashboardSettingsForm({
             )}
           </select>
         </div>
-      </section>
-      <section className="settings-section">
-        <h2 className="settings-heading">API access</h2>
+        </section>
+        <section className="settings-section">
+          <h4 className="settings-heading">API access</h4>
         <p className="settings-hint">Use X-API-Key header with the same value to call the REST API (e.g. GET/POST /api/v1/tenants/:tenantId/modules/...).</p>
         <div className="form-group">
           <label htmlFor="apiKey">API key</label>
@@ -119,54 +149,9 @@ export function DashboardSettingsForm({
             className="settings-api-key"
           />
         </div>
-      </section>
-      <section className="settings-section">
-        <h2 className="settings-heading">Customer site (public modules)</h2>
-        <p className="settings-hint">Show these modules on your public site at /s/your-slug/[url-slug]. Set payment type for modules where submissions require payment or donation.</p>
-        {modules.map((m) => (
-          <div key={m.id} className="settings-public-module">
-            <label className="settings-check-label">
-              <input
-                type="checkbox"
-                name={`publicModule_enabled_${m.slug}`}
-                value="1"
-                defaultChecked={!!publicModules[m.slug]}
-              />
-              <strong>{m.name}</strong>
-            </label>
-            <input
-              id={`pub_slug_${m.slug}`}
-              name={`publicModule_slug_${m.slug}`}
-              type="text"
-              defaultValue={publicModules[m.slug]?.slug ?? m.slug}
-              placeholder="URL slug"
-              className="settings-public-slug"
-            />
-            <label className="settings-check-label">
-              <input
-                type="checkbox"
-                name={`publicModule_nav_${m.slug}`}
-                value="1"
-                defaultChecked={publicModules[m.slug]?.showInNav !== false}
-              />
-              Show in nav
-            </label>
-            <label htmlFor={`pub_payment_${m.slug}`} className="settings-check-label" style={{ marginLeft: "0.5rem" }}>
-              Payment type:
-            </label>
-            <select
-              id={`pub_payment_${m.slug}`}
-              name={`publicModule_paymentType_${m.slug}`}
-              defaultValue={modulePaymentTypes[m.slug] ?? ""}
-              style={{ minWidth: "8rem" }}
-            >
-              <option value="">None</option>
-              <option value="payment">Payment</option>
-              <option value="donation">Donation</option>
-            </select>
-          </div>
-        ))}
-      </section>
+        </section>
+      </div>
+
       {(() => {
         const err = state && typeof state === "object" && "error" in state ? (state as { error: string }).error : null;
         return err ? <p className="view-error" role="alert">{err}</p> : null;

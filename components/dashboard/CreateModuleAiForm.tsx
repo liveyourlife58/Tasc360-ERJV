@@ -3,13 +3,27 @@
 import { useActionState, useState, useRef, useCallback, useEffect } from "react";
 import { handleAiPrompt } from "@/app/dashboard/actions";
 
-function getSpeechRecognition(): typeof SpeechRecognition | null {
+/** Minimal type for Web Speech API recognition (not in TS lib by default). */
+type SpeechRecognitionCtor = new () => {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionResultEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionResultEvent = {
+  resultIndex: number;
+  results: { length: number; [i: number]: { isFinal: boolean; 0: { transcript: string }; length: number } };
+};
+
+function getSpeechRecognition(): SpeechRecognitionCtor | null {
   if (typeof window === "undefined") return null;
-  return (
-    (window as unknown as { SpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition ??
-    (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition ??
-    null
-  );
+  const w = window as unknown as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
 export function CreateModuleAiForm({ tenantId }: { tenantId: string }) {
@@ -20,7 +34,7 @@ export function CreateModuleAiForm({ tenantId }: { tenantId: string }) {
     handleAiPrompt.bind(null, tenantId),
     null
   );
-  const recognitionRef = useRef<InstanceType<NonNullable<ReturnType<typeof getSpeechRecognition>>> | null>(null);
+  const recognitionRef = useRef<InstanceType<SpeechRecognitionCtor> | null>(null);
   const interimRef = useRef("");
   interimRef.current = interim;
 
@@ -45,7 +59,7 @@ export function CreateModuleAiForm({ tenantId }: { tenantId: string }) {
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: SpeechRecognitionResultEvent) => {
       let finalTranscript = "";
       let interimTranscript = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -99,49 +113,57 @@ export function CreateModuleAiForm({ tenantId }: { tenantId: string }) {
 
   const displayValue = listening && (prompt || interim) ? `${prompt}${interim ? ` ${interim}` : ""}`.trim() : prompt;
 
+  const MicIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="22" />
+    </svg>
+  );
+  const StopIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  );
+
   return (
     <form action={formAction} className="ai-create-module-form">
-      <div className="form-group">
-        <label htmlFor="ai-prompt">Ask for changes</label>
-        <div className="ai-prompt-row">
-          <textarea
-            id="ai-prompt"
-            name="prompt"
-            value={displayValue}
-            onChange={(e) => {
-              setPrompt(e.target.value);
-              setInterim("");
-            }}
-            placeholder="e.g. Create a module for events — Add location to Events — Show Events on public site — Set default home to Events — Add an event: Meetup, March 15, 25 — Delete the All view from Events — Rename Events to Calendar — Remove location field from Events — Move description before date on Events — Move Events to the top"
-            rows={3}
-            className="ai-prompt-input"
-            aria-describedby="ai-hint"
-          />
-          {supportsSpeech && (
-            <button
-              type="button"
-              onClick={toggleListening}
-              className={`ai-prompt-mic ${listening ? "ai-prompt-mic-active" : ""}`}
-              title={listening ? "Stop capturing" : "Start voice input"}
-              aria-label={listening ? "Stop capturing" : "Start voice input"}
-            >
-              {listening ? "Stop" : "Start"}
-            </button>
-          )}
-        </div>
-        <p className="form-hint" id="ai-hint">
-          One prompt for anything: create module, add/remove fields, create/edit/delete view, enable module on public site, set default home, add a record, rename module, reorder sidebar. Set <code>OPENAI_API_KEY</code> for best results.
-          {supportsSpeech && " Use Start to capture voice, Stop when done, then Apply."}
-        </p>
+      <div className="ai-prompt-main">
+        <label htmlFor="ai-prompt" className="ai-prompt-label">Ask for changes</label>
+        <textarea
+          id="ai-prompt"
+          name="prompt"
+          value={displayValue}
+          onChange={(e) => {
+            setPrompt(e.target.value);
+            setInterim("");
+          }}
+          placeholder="One prompt for anything: create module, add/remove fields, create/edit/delete view, enable on public site, set default home, add a record, rename module, reorder sidebar. e.g. Create a module for events — Add location to Events — Show Events on public site — Add an event: Meetup, March 15 — Rename Events to Calendar"
+          rows={3}
+          className="ai-prompt-input"
+        />
+      </div>
+      <div className="ai-prompt-actions">
+        {supportsSpeech && (
+          <button
+            type="button"
+            onClick={toggleListening}
+            className={`ai-prompt-mic ${listening ? "ai-prompt-mic-active" : ""}`}
+            title={listening ? "Stop capturing" : "Start voice input"}
+            aria-label={listening ? "Stop capturing" : "Start voice input"}
+          >
+            {listening ? <StopIcon /> : <MicIcon />}
+          </button>
+        )}
+        <button type="submit" className="btn btn-primary ai-prompt-apply">
+          Apply
+        </button>
       </div>
       {state && typeof state === "object" && "error" in state && (
         <p className="view-error" role="alert">
           {(state as { error: string }).error}
         </p>
       )}
-      <button type="submit" className="btn btn-primary">
-        Apply
-      </button>
     </form>
   );
 }

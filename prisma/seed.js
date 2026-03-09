@@ -23,16 +23,45 @@ async function main() {
     },
   });
 
+  const adminRole = await prisma.role.upsert({
+    where: {
+      tenantId_name: { tenantId: tenant.id, name: "admin" },
+    },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      name: "admin",
+      description: "Full access including settings and user management",
+      permissions: ["*"],
+      isActive: true,
+    },
+  });
+
+  await prisma.role.upsert({
+    where: {
+      tenantId_name: { tenantId: tenant.id, name: "standard" },
+    },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      name: "standard",
+      description: "Can use modules and views; cannot manage settings or users",
+      permissions: ["entities:read", "entities:write", "views:manage"],
+      isActive: true,
+    },
+  });
+
   await prisma.user.upsert({
     where: {
       tenantId_email: { tenantId: tenant.id, email: DEFAULT_EMAIL },
     },
-    update: { passwordHash },
+    update: { passwordHash, roleId: adminRole.id },
     create: {
       tenantId: tenant.id,
       email: DEFAULT_EMAIL,
       name: "Admin",
       passwordHash,
+      roleId: adminRole.id,
       isActive: true,
     },
   });

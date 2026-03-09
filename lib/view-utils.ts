@@ -168,6 +168,8 @@ export function getColumnOrder(
 ): string[] {
   const cols = Array.isArray(config?.columns) ? config.columns : [];
   const valid = cols.filter((s) => allFieldSlugs.includes(s));
-  const rest = allFieldSlugs.filter((s) => !valid.includes(s));
-  return [...valid, ...rest].slice(0, maxColumns);
+  if (valid.length > 0) {
+    return valid.slice(0, maxColumns);
+  }
+  return allFieldSlugs.slice(0, maxColumns);
 }

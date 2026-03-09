@@ -152,7 +152,7 @@ export async function updateEntity(
     data: {
       data: data as object,
       metadata: metadata as object,
-      searchText: searchText.slice(0, 10000) || null,
+      searchText: searchText != null ? searchText.slice(0, 10000) : null,
     },
     include: { module: { select: { slug: true } } },
   });
@@ -265,14 +265,16 @@ async function findEntityByRef(
   });
   const refLower = entityRef.toLowerCase().trim();
   const firstFieldSlug = moduleFields[0]?.slug ?? "name";
-  return entities.find((e) => {
+  const found = entities.find((e) => {
     const search = (e.searchText ?? "").toLowerCase();
     if (search.includes(refLower)) return true;
     const data = (e.data as Record<string, unknown>) ?? {};
     const nameVal = data.name ?? data[firstFieldSlug];
     const nameStr = String(nameVal ?? "").toLowerCase();
     return nameStr.includes(refLower) || refLower.includes(nameStr) || nameStr === refLower;
-  }) ?? null;
+  });
+  if (!found) return null;
+  return { id: found.id, data: (found.data ?? {}) as object, searchText: found.searchText };
 }
 
 export async function deleteEntity(
@@ -354,6 +356,16 @@ export async function deleteView(
   redirect(`/dashboard/m/${moduleSlug}`);
 }
 
+/** Form-action wrapper for deleteView (signature expected by form action). */
+export async function deleteViewFormAction(
+  viewId: string,
+  moduleSlug: string,
+  _prev: unknown,
+  _formData: FormData
+) {
+  await deleteView(viewId, moduleSlug);
+}
+
 export async function updateView(
   viewId: string,
   moduleSlug: string,
@@ -399,85 +411,101 @@ export async function updateDashboardSettings(
     select: { settings: true },
   });
   const settings = (tenant?.settings as Record<string, unknown>) ?? {};
-  const dashboard = (settings.dashboard as Record<string, unknown>) ?? {};
-  const branding = (dashboard.branding as Record<string, unknown>) ?? {};
+  const section = (formData.get("settingsSection") as string) || null;
 
-  const name = (formData.get("brandingName") as string)?.trim();
-  const logo = (formData.get("brandingLogo") as string)?.trim();
-  const primaryColor = (formData.get("brandingPrimaryColor") as string)?.trim();
-  if (name !== undefined) branding.name = name || undefined;
-  if (logo !== undefined) branding.logo = logo || undefined;
-  if (primaryColor !== undefined) branding.primaryColor = primaryColor || undefined;
-  dashboard.branding = Object.keys(branding).length ? branding : undefined;
-
-  const homeType = formData.get("homeType") as string;
-  const homeModuleSlug = (formData.get("homeModuleSlug") as string)?.trim();
-  const homeViewId = (formData.get("homeViewId") as string)?.trim();
-  if (homeType === "module" && homeModuleSlug) {
-    dashboard.home = { type: "module", moduleSlug: homeModuleSlug };
-  } else if (homeType === "view" && homeModuleSlug && homeViewId) {
-    dashboard.home = { type: "view", moduleSlug: homeModuleSlug, viewId: homeViewId };
-  } else if (homeType === "none" || !homeType) {
-    dashboard.home = undefined;
-  }
-
-  const sidebarOrderRaw = formData.get("sidebarOrder") as string;
-  if (sidebarOrderRaw !== undefined) {
-    try {
-      const order = JSON.parse(sidebarOrderRaw) as string[];
-      dashboard.sidebarOrder = Array.isArray(order) ? order : undefined;
-    } catch {
-      dashboard.sidebarOrder = undefined;
+  if (section !== "customer") {
+    const dashboard = (settings.dashboard as Record<string, unknown>) ?? {};
+    const branding = (dashboard.branding as Record<string, unknown>) ?? {};
+    const name = (formData.get("brandingName") as string)?.trim();
+    const logo = (formData.get("brandingLogo") as string)?.trim();
+    const primaryColor = (formData.get("brandingPrimaryColor") as string)?.trim();
+    if (name !== undefined) branding.name = name || undefined;
+    if (logo !== undefined) branding.logo = logo || undefined;
+    if (primaryColor !== undefined) branding.primaryColor = primaryColor || undefined;
+    dashboard.branding = Object.keys(branding).length ? branding : undefined;
+    const homeType = formData.get("homeType") as string;
+    const homeModuleSlug = (formData.get("homeModuleSlug") as string)?.trim();
+    const homeViewId = (formData.get("homeViewId") as string)?.trim();
+    if (homeType === "module" && homeModuleSlug) {
+      dashboard.home = { type: "module", moduleSlug: homeModuleSlug };
+    } else if (homeType === "view" && homeModuleSlug && homeViewId) {
+      dashboard.home = { type: "view", moduleSlug: homeModuleSlug, viewId: homeViewId };
+    } else if (homeType === "none" || !homeType) {
+      dashboard.home = undefined;
+    }
+    const sidebarOrderRaw = formData.get("sidebarOrder") as string;
+    if (sidebarOrderRaw !== undefined) {
+      try {
+        const order = JSON.parse(sidebarOrderRaw) as string[];
+        dashboard.sidebarOrder = Array.isArray(order) ? order : undefined;
+      } catch {
+        dashboard.sidebarOrder = undefined;
+      }
+    }
+    settings.dashboard = Object.keys(dashboard).length ? dashboard : undefined;
+    const apiKeyRaw = (formData.get("apiKey") as string)?.trim();
+    if (apiKeyRaw !== undefined && apiKeyRaw !== "") {
+      settings.apiKey = apiKeyRaw;
     }
   }
 
-  settings.dashboard = Object.keys(dashboard).length ? dashboard : undefined;
-
-  // API key for REST API (Phase 7)
-  const apiKeyRaw = (formData.get("apiKey") as string)?.trim();
-  if (apiKeyRaw !== undefined && apiKeyRaw !== "") {
-    settings.apiKey = apiKeyRaw;
-  }
-
-  // Public site modules (customer-facing site) — only include when "enabled" is checked
-  const site = (settings.site as Record<string, unknown>) ?? {};
-  const publicModules: Record<string, { slug: string; showInNav: boolean }> = {};
-  for (const [key, value] of formData.entries()) {
-    if (key.startsWith("publicModule_enabled_") && value === "1") {
-      const moduleSlug = key.replace("publicModule_enabled_", "");
-      const slugEntry = formData.get("publicModule_slug_" + moduleSlug);
-      const slug = (slugEntry as string)?.trim() || moduleSlug;
-      publicModules[moduleSlug] = {
-        slug,
-        showInNav: formData.get("publicModule_nav_" + moduleSlug) === "1",
-      };
+  if (section !== "backend") {
+    const site = (settings.site as Record<string, unknown>) ?? {};
+    const publicModules: Record<string, { slug: string; showInNav: boolean }> = {};
+    for (const [key, value] of formData.entries()) {
+      if (key.startsWith("publicModule_enabled_") && value === "1") {
+        const moduleSlug = key.replace("publicModule_enabled_", "");
+        const slugEntry = formData.get("publicModule_slug_" + moduleSlug);
+        const slug = (slugEntry as string)?.trim() || moduleSlug;
+        publicModules[moduleSlug] = {
+          slug,
+          showInNav: formData.get("publicModule_nav_" + moduleSlug) === "1",
+        };
+      }
+    }
+    site.publicModules = Object.keys(publicModules).length ? publicModules : undefined;
+    const heroImage = (formData.get("siteHeroImage") as string)?.trim();
+    if (heroImage !== undefined) site.heroImage = heroImage || undefined;
+    const metaTitle = (formData.get("metaTitle") as string)?.trim();
+    if (metaTitle !== undefined) site.metaTitle = metaTitle || undefined;
+    const metaDescription = (formData.get("metaDescription") as string)?.trim();
+    if (metaDescription !== undefined) site.metaDescription = metaDescription || undefined;
+    const ogImage = (formData.get("ogImage") as string)?.trim();
+    if (ogImage !== undefined) site.ogImage = ogImage || undefined;
+    const canonicalBaseUrl = (formData.get("canonicalBaseUrl") as string)?.trim();
+    if (canonicalBaseUrl !== undefined) site.canonicalBaseUrl = canonicalBaseUrl || undefined;
+    const homepageSidebarModule = (formData.get("homepageSidebarModule") as string)?.trim();
+    if (homepageSidebarModule !== undefined) {
+      site.homepageSidebarModule = homepageSidebarModule || undefined;
+    }
+    const sidebarFieldSlugs = formData.getAll("homepageSidebarFieldSlugs").filter((v): v is string => typeof v === "string" && v.trim() !== "");
+    if (sidebarFieldSlugs.length >= 0) {
+      site.homepageSidebarFieldSlugs = sidebarFieldSlugs.length ? sidebarFieldSlugs : undefined;
+    }
+    settings.site = Object.keys(site).length ? site : undefined;
+    const { mergeModulePaymentType } = await import("@/lib/module-settings");
+    const allModules = await prisma.module.findMany({
+      where: { tenantId },
+      select: { id: true, slug: true, settings: true },
+    });
+    for (const mod of allModules) {
+      const raw = formData.get("publicModule_paymentType_" + mod.slug) as string | null;
+      const paymentType = raw === "payment" || raw === "donation" ? raw : null;
+      const nextSettings = mergeModulePaymentType(
+        (mod.settings as Record<string, unknown>) ?? null,
+        paymentType
+      );
+      await prisma.module.update({
+        where: { id: mod.id },
+        data: { settings: nextSettings as object },
+      });
     }
   }
-  site.publicModules = Object.keys(publicModules).length ? publicModules : undefined;
-  settings.site = Object.keys(site).length ? site : undefined;
+
   await prisma.tenant.update({
     where: { id: tenantId },
     data: { settings: settings as object },
   });
-
-  // Persist module payment type (payment / donation / none) per module
-  const { mergeModulePaymentType } = await import("@/lib/module-settings");
-  const allModules = await prisma.module.findMany({
-    where: { tenantId },
-    select: { id: true, slug: true, settings: true },
-  });
-  for (const mod of allModules) {
-    const raw = formData.get("publicModule_paymentType_" + mod.slug) as string | null;
-    const paymentType = raw === "payment" || raw === "donation" ? raw : null;
-    const nextSettings = mergeModulePaymentType(
-      (mod.settings as Record<string, unknown>) ?? null,
-      paymentType
-    );
-    await prisma.module.update({
-      where: { id: mod.id },
-      data: { settings: nextSettings as object },
-    });
-  }
 
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/settings");
@@ -771,7 +799,7 @@ export async function handleAiPrompt(tenantId: string, _prev: unknown, formData:
         tenantId,
         moduleId: module_.id,
         data: data as object,
-        searchText: searchText.slice(0, 10000) || null,
+        searchText: searchText != null ? searchText.slice(0, 10000) : null,
         createdBy: userId,
       },
     });
@@ -792,7 +820,7 @@ export async function handleAiPrompt(tenantId: string, _prev: unknown, formData:
           tenantId,
           moduleId: module_.id,
           data: data as object,
-          searchText: searchText.slice(0, 10000) || null,
+          searchText: searchText != null ? searchText.slice(0, 10000) : null,
           createdBy: userId,
         },
       });
@@ -959,7 +987,7 @@ export async function handleAiPrompt(tenantId: string, _prev: unknown, formData:
     const searchText = Object.values(next).filter((v) => typeof v === "string" && v).join(" ");
     await prisma.entity.update({
       where: { id: match.id },
-      data: { data: next as object, searchText: searchText.slice(0, 10000) || null, updatedAt: new Date() },
+      data: { data: next as object, searchText: searchText != null ? searchText.slice(0, 10000) : null, updatedAt: new Date() },
     });
     revalidatePath(`/dashboard/m/${moduleSlug}`);
     redirect(`/dashboard/m/${moduleSlug}`);
@@ -993,7 +1021,7 @@ export async function handleAiPrompt(tenantId: string, _prev: unknown, formData:
         tenantId,
         moduleId: module_.id,
         data: next as object,
-        searchText: searchText.slice(0, 10000) || null,
+        searchText: searchText != null ? searchText.slice(0, 10000) : null,
         createdBy: userId,
       },
     });
@@ -1065,7 +1093,7 @@ export async function handleAiPrompt(tenantId: string, _prev: unknown, formData:
       const searchText = Object.values(next).filter((v) => typeof v === "string" && v).join(" ");
       await prisma.entity.update({
         where: { id: e.id },
-        data: { data: next as object, searchText: searchText.slice(0, 10000) || null, updatedAt: new Date() },
+        data: { data: next as object, searchText: searchText != null ? searchText.slice(0, 10000) : null, updatedAt: new Date() },
       });
     }
     revalidatePath(`/dashboard/m/${moduleSlug}`);

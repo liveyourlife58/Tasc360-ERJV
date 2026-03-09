@@ -78,6 +78,8 @@ model User {
   roleId               String?   @map("role_id") @db.Uuid
   settings             Json?     @default("{}")
   isActive             Boolean   @default(true) @map("is_active")
+  /// When the user was deactivated (isActive set to false). Null while active. Used for billing proration and audit.
+  deactivatedAt        DateTime? @map("deactivated_at") @db.Timestamptz(6)
   lastLoginAt          DateTime? @map("last_login_at") @db.Timestamptz(6)
   /// Increment on failed login; reset on success. Enforce lockout in app.
   failedLoginAttempts  Int       @default(0) @map("failed_login_attempts")

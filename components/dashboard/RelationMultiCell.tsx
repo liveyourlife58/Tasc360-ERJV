@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { getRelationEntityData } from "@/app/dashboard/actions";
+import { formatDate } from "@/lib/format";
 
 type Field = { slug: string; name: string };
 
@@ -183,7 +184,7 @@ function formatCell(value: unknown): React.ReactNode {
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (Array.isArray(value)) return value.length ? `${value.length} items` : "—";
   if (typeof value === "object" && "toISOString" in (value as object)) {
-    return new Date((value as Date).toString()).toLocaleString();
+    return formatDate(value);
   }
   return String(value);
 }

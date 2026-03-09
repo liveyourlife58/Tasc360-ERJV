@@ -5,8 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getDashboardSettings } from "@/lib/dashboard-settings";
 import { getModulePaymentType } from "@/lib/module-settings";
 import { updateDashboardSettings } from "../actions";
-import { DashboardSettingsForm } from "./DashboardSettingsForm";
-import { GenerateSiteAiForm } from "./GenerateSiteAiForm";
+import { SettingsSectionCards } from "./SettingsSectionCards";
 
 export default async function DashboardSettingsPage() {
   const tenantId = (await headers()).get("x-tenant-id");
@@ -20,11 +19,31 @@ export default async function DashboardSettingsPage() {
     prisma.module.findMany({
       where: { tenantId, isActive: true },
       orderBy: { sortOrder: "asc" },
-      select: { id: true, name: true, slug: true, settings: true },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        settings: true,
+        fields: { orderBy: { sortOrder: "asc" }, select: { id: true, slug: true, name: true } },
+      },
     }),
   ]);
   const dashboardSettings = getDashboardSettings(tenant?.settings ?? null);
-  const site = ((tenant?.settings as Record<string, unknown>)?.site as Record<string, unknown>) ?? {};
+  const settingsObj = (tenant?.settings as Record<string, unknown>) ?? {};
+  const site = (settingsObj.site as Record<string, unknown>) ?? {};
+  const pages = (settingsObj.pages as Record<string, unknown>) ?? {};
+  const currentSiteName = (site.name as string) ?? "";
+  const currentTagline = (site.tagline as string) ?? "";
+  const currentHeroImage = (site.heroImage as string) ?? "";
+  const currentMetaTitle = (site.metaTitle as string) ?? "";
+  const currentMetaDescription = (site.metaDescription as string) ?? "";
+  const currentOgImage = (site.ogImage as string) ?? "";
+  const currentCanonicalBaseUrl = (site.canonicalBaseUrl as string) ?? "";
+  const homepageSidebarModule = (site.homepageSidebarModule as string) ?? "";
+  const homepageSidebarFieldSlugs = Array.isArray(site.homepageSidebarFieldSlugs)
+    ? (site.homepageSidebarFieldSlugs as string[])
+    : [];
+  const currentHomeContent = (pages.home as string) ?? "";
   const publicModules = (site.publicModules as Record<string, { slug: string; showInNav?: boolean }>) ?? {};
   const modulePaymentTypes: Record<string, "payment" | "donation" | null> = {};
   for (const m of modules) {
@@ -48,13 +67,10 @@ export default async function DashboardSettingsPage() {
           Back to Home
         </Link>
       </div>
-      <section className="settings-section" style={{ marginBottom: "2rem" }}>
-        <h2 className="settings-heading">Generate with AI (customer site)</h2>
-        <GenerateSiteAiForm tenantId={tenantId} />
-      </section>
-      <DashboardSettingsForm
+      <p className="settings-intro">Click a section to open its settings.</p>
+      <SettingsSectionCards
         tenantId={tenantId}
-        action={updateDashboardSettings.bind(null, tenantId)}
+        updateAction={updateDashboardSettings.bind(null, tenantId)}
         branding={dashboardSettings.branding}
         home={dashboardSettings.home}
         sidebarOrder={dashboardSettings.sidebarOrder}
@@ -62,6 +78,16 @@ export default async function DashboardSettingsPage() {
         modulePaymentTypes={modulePaymentTypes}
         modules={modules}
         viewsByModule={viewsByModule}
+        currentSiteName={currentSiteName}
+        currentTagline={currentTagline}
+        currentHeroImage={currentHeroImage}
+        homepageSidebarModule={homepageSidebarModule}
+        homepageSidebarFieldSlugs={homepageSidebarFieldSlugs}
+        currentHomeContent={currentHomeContent}
+        currentMetaTitle={currentMetaTitle}
+        currentMetaDescription={currentMetaDescription}
+        currentOgImage={currentOgImage}
+        currentCanonicalBaseUrl={currentCanonicalBaseUrl}
       />
     </div>
   );

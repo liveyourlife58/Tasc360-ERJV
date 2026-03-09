@@ -12,6 +12,7 @@ import {
   getEntitySuggestedDonationCents,
 } from "@/lib/module-settings";
 import { DeleteEntityButton } from "@/components/dashboard/DeleteEntityButton";
+import { formatDate } from "@/lib/format";
 
 export default async function EditEntityPage({
   params,
@@ -75,7 +76,7 @@ export default async function EditEntityPage({
               <li key={line.id} style={{ padding: "0.35rem 0", borderBottom: "1px solid #e2e8f0" }}>
                 <strong>{line.order.purchaserName}</strong> ({line.order.purchaserEmail}) — {line.quantity} × ${(line.amountCents / 100).toFixed(2)} ({line.lineType})
                 <span style={{ color: "#64748b", marginLeft: "0.5rem" }}>
-                  {new Date(line.order.createdAt).toLocaleDateString()}
+                  {formatDate(line.order.createdAt)}
                 </span>
                 <span style={{ marginLeft: "0.5rem" }}>
                   — {line.checkedInQuantity ?? 0}/{line.quantity} checked in

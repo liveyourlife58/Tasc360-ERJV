@@ -47,14 +47,15 @@ export async function Sidebar({
             {m.name}
           </Link>
         ))}
+      </nav>
+      <div className="dashboard-sidebar-footer">
+        <Link href="/dashboard/subscription">Subscription &amp; team</Link>
         <Link href="/dashboard/settings">Settings</Link>
         {tenantSlug && (
           <a href={`/s/${tenantSlug}`} target="_blank" rel="noopener noreferrer">
             Preview site
           </a>
         )}
-      </nav>
-      <div className="dashboard-sidebar-footer">
         <form action={logout}>
           <button type="submit" className="btn btn-secondary sidebar-logout">
             Log out

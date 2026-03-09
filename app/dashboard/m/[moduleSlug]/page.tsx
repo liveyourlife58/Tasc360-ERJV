@@ -3,8 +3,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { EntityList } from "@/components/dashboard/EntityList";
-import { ViewSelector } from "@/components/dashboard/ViewSelector";
-import { CreateViewAiForm } from "@/components/dashboard/CreateViewAiForm";
+import { ModuleViewSelectorRow } from "@/components/dashboard/ModuleViewSelectorRow";
+import { updateView, deleteViewFormAction } from "@/app/dashboard/actions";
 import { applyViewToEntities, getColumnOrder } from "@/lib/view-utils";
 
 export default async function ModuleEntityListPage({
@@ -28,7 +28,7 @@ export default async function ModuleEntityListPage({
   const [views, entities] = await Promise.all([
     prisma.view.findMany({
       where: { tenantId, moduleId: module_.id },
-      select: { id: true, name: true },
+      select: { id: true, name: true, columns: true },
     }),
     prisma.entity.findMany({
       where: {
@@ -78,32 +78,29 @@ export default async function ModuleEntityListPage({
           New {module_.name.slice(0, -1)}
         </Link>
       </div>
-      <div className="view-selector-row">
-        <ViewSelector
-          moduleSlug={moduleSlug}
-          views={views.map((v) => ({ id: v.id, name: v.name }))}
-          currentViewId={viewId ?? null}
-          fieldSlugs={fieldSlugs}
-          createViewCtx={{
-            tenantId,
-            moduleId: module_.id,
-            moduleSlug,
-          }}
-        />
-        <CreateViewAiForm
-          ctx={{
-            tenantId,
-            moduleId: module_.id,
-            moduleSlug,
-            moduleName: module_.name,
-            fieldSlugs,
-          }}
-        />
-      </div>
+      <ModuleViewSelectorRow
+        moduleSlug={moduleSlug}
+        views={views.map((v) => ({
+          id: v.id,
+          name: v.name,
+          columns: Array.isArray(v.columns) ? (v.columns as string[]) : [],
+        }))}
+        currentViewId={viewId ?? null}
+        fieldSlugs={fieldSlugs}
+        updateViewAction={updateView}
+        deleteViewAction={deleteViewFormAction}
+        createViewCtx={{
+          tenantId,
+          moduleId: module_.id,
+          moduleSlug,
+          moduleName: module_.name,
+          fieldSlugs,
+        }}
+      />
       <EntityList
         moduleSlug={moduleSlug}
         module={module_}
-        fields={module_.fields}
+        fields={module_.fields.map((f) => ({ ...f, settings: (f.settings ?? {}) as Record<string, unknown> }))}
         entities={filteredEntities as { id: string; data: Record<string, unknown> | unknown; metadata?: unknown; orderLines?: { quantity: number }[] }[]}
         columnSlugs={columnSlugs.length ? columnSlugs : undefined}
       />

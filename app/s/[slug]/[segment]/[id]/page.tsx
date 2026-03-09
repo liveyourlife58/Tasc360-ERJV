@@ -11,6 +11,7 @@ import {
   getEntitySuggestedDonationCents,
 } from "@/lib/module-settings";
 import { AddToCartButton } from "@/components/site/AddToCartButton";
+import { formatDateIfApplicable } from "@/lib/format";
 
 export async function generateMetadata({
   params,
@@ -180,8 +181,8 @@ function formatAmount(cents: number): string {
 function formatDetailValue(value: unknown, fieldType: string): React.ReactNode {
   if (value == null) return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "object" && "toISOString" in (value as object))
-    return new Date((value as Date).toString()).toLocaleDateString();
+  const dateStr = formatDateIfApplicable(value, fieldType);
+  if (dateStr !== null) return dateStr;
   if (fieldType === "json" && typeof value === "object")
     return <pre className="site-json">{JSON.stringify(value, null, 2)}</pre>;
   return String(value);

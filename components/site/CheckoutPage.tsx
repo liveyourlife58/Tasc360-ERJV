@@ -45,7 +45,7 @@ export function CheckoutPage({ tenantSlug }: { tenantSlug: string }) {
     setSubmitting(true);
     try {
       const result = await submitCheckout(tenantSlug, items, { name, email });
-      if (result.error) {
+      if ("error" in result && result.error) {
         setError(result.error);
         setSubmitting(false);
         return;
