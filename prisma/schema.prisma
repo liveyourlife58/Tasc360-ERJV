@@ -1,0 +1,653 @@
+// Tasc360-ERJV — Multi-tenant entity/relationship/JSONB database
+// PostgreSQL with UUID PKs, tenant isolation, and optional pgvector (see README).
+// Design supports: CRM, jobs, estimates, invoices, inventory, vendors, documents, AI search.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// MULTI-TENANT ROOT
+// =============================================================================
+
+model Tenant {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @db.VarChar(255)
+  slug      String   @unique @db.VarChar(100)
+  plan      String?  @db.VarChar(50)
+  settings  Json?    @default("{}")
+  isActive  Boolean  @default(true) @map("is_active")
+  /// Optional parent tenant for franchise, white-label, or org hierarchy (e.g. brand → locations).
+  parentTenantId    String?   @map("parent_tenant_id") @db.Uuid
+  /// Stripe Customer ID (cus_xxx). Create in Stripe when tenant signs up or starts trial.
+  stripeCustomerId           String?   @map("stripe_customer_id") @db.VarChar(255)
+  /// Stripe Subscription ID (sub_xxx). Set when subscription is created; clear when canceled.
+  stripeSubscriptionId       String?   @map("stripe_subscription_id") @db.VarChar(255)
+  /// Mirror of Stripe subscription status for quick checks: active, past_due, canceled, trialing, etc.
+  subscriptionStatus         String?   @map("subscription_status") @db.VarChar(50)
+  /// End of current billing period (from Stripe). Use to gate access and show renewal date.
+  subscriptionCurrentPeriodEnd DateTime? @map("subscription_current_period_end") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  parentTenant   Tenant?   @relation("TenantHierarchy", fields: [parentTenantId], references: [id], onDelete: SetNull)
+  childTenants   Tenant[]  @relation("TenantHierarchy")
+  users       User[]
+  roles       Role[]
+  modules     Module[]
+  entities    Entity[]
+  relationships Relationship[]
+  events          Event[]
+  files           File[]
+  embeddings      Embedding[]
+  payments        Payment[]
+  journalEntries  JournalEntry[]
+  timeEntries     TimeEntry[]
+  approvals          Approval[]
+  recurringSchedules RecurringSchedule[]
+  entityTags         EntityTag[]
+  views              View[]
+  exchangeRates      ExchangeRate[]
+  fiscalPeriods      FiscalPeriod[]
+  consents           Consent[]
+  orders             Order[]
+
+  @@index([slug], map: "idx_tenants_slug")
+  @@index([parentTenantId], map: "idx_tenants_parent")
+  @@index([stripeCustomerId], map: "idx_tenants_stripe_customer")
+  @@index([subscriptionStatus], map: "idx_tenants_subscription_status")
+  @@map("tenants")
+}
+
+// =============================================================================
+// USERS & ROLES (tenant-scoped; enables per-tenant permission customization)
+// =============================================================================
+
+model User {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  email                String    @db.VarChar(255)
+  name                 String?   @db.VarChar(255)
+  /// Store only bcrypt/argon2 hash; never plaintext. Nullable for SSO-only users.
+  passwordHash         String?   @map("password_hash") @db.VarChar(255)
+  roleId               String?   @map("role_id") @db.Uuid
+  settings             Json?     @default("{}")
+  isActive             Boolean   @default(true) @map("is_active")
+  lastLoginAt          DateTime? @map("last_login_at") @db.Timestamptz(6)
+  /// Increment on failed login; reset on success. Enforce lockout in app.
+  failedLoginAttempts  Int       @default(0) @map("failed_login_attempts")
+  accountLocked        Boolean   @default(false) @map("account_locked")
+  lockedUntil          DateTime? @map("locked_until") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role       Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  entitiesCreated Entity[] @relation("EntityCreatedBy")
+  events     Event[]
+  timeEntries TimeEntry[]
+  approvalsRequested Approval[] @relation("ApprovalRequestedBy")
+  approvalsDecided   Approval[] @relation("ApprovalDecidedBy")
+  consents   Consent[]
+
+  @@unique([tenantId, email], map: "users_tenant_email_unique")
+  @@index([tenantId], map: "idx_users_tenant_id")
+  @@index([tenantId, email], map: "idx_users_tenant_email")
+  @@map("users")
+}
+
+// =============================================================================
+// CONSENT (GDPR / marketing opt-in — who consented to what, when)
+// One row per (tenant, user, consent_type); revoked_at set when withdrawn.
+// =============================================================================
+
+model Consent {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  consentType String    @map("consent_type") @db.VarChar(50) // e.g. marketing, essential, analytics
+  grantedAt   DateTime  @map("granted_at") @db.Timestamptz(6)
+  source      String?   @db.VarChar(255)   // e.g. signup_form, preferences_page
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, consentType], map: "consent_tenant_user_type_unique")
+  @@index([tenantId], map: "idx_consent_tenant_id")
+  @@index([tenantId, consentType], map: "idx_consent_tenant_type")
+  @@map("consents")
+}
+
+model Role {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  name        String   @db.VarChar(100)
+  description String?
+  permissions Json?    @default("[]") // e.g. ["entities:read", "entities:write", "modules:manage"]
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users  User[]
+
+  @@unique([tenantId, name], map: "roles_tenant_name_unique")
+  @@index([tenantId], map: "idx_roles_tenant_id")
+  @@map("roles")
+}
+
+// =============================================================================
+// MODULES & FIELDS (user-customizable schema — Notion-style)
+// Tenants define their own modules (e.g. Customers, Jobs, Estimates) and fields.
+// =============================================================================
+
+model Module {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  name        String   @db.VarChar(255)
+  slug        String   @db.VarChar(100)
+  description String?
+  settings    Json?    @default("{}") // e.g. default views, workflows
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fields Field[]
+  entities Entity[]
+  views   View[]
+
+  @@unique([tenantId, slug], map: "modules_tenant_slug_unique")
+  @@index([tenantId], map: "idx_modules_tenant_id")
+  @@map("modules")
+}
+
+model Field {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  moduleId  String   @map("module_id") @db.Uuid
+  name      String   @db.VarChar(255)
+  slug      String   @db.VarChar(100)
+  fieldType String   @map("field_type") @db.VarChar(50) // text, number, date, boolean, select, relation, file, json
+  settings  Json?    @default("{}") // options for select, relation target module, etc.
+  sortOrder Int      @default(0) @map("sort_order")
+  isRequired Boolean @default(false) @map("is_required")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([moduleId, slug], map: "fields_module_slug_unique")
+  @@index([moduleId], map: "idx_fields_module_id")
+  @@map("fields")
+}
+
+// =============================================================================
+// ENTITIES (core record table — all business objects live here)
+// data: JSONB payload (shape defined by module/fields or fixed type).
+// metadata: system/audit extras (e.g. externalIds, tags).
+// Soft delete: set deletedAt instead of hard delete; app filters WHERE deleted_at IS NULL.
+// =============================================================================
+
+model Entity {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  moduleId  String?  @map("module_id") @db.Uuid
+  data      Json     @default("{}")
+  metadata  Json?    @default("{}")
+  /// Denormalized text for full-text search and as default source for embeddings. App maintains from data.
+  searchText String? @map("search_text") @db.Text
+  /// Soft delete: set when "deleted"; exclude from default lists (WHERE deleted_at IS NULL). Enables undo and compliance.
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  module     Module?  @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  createdByUser User? @relation("EntityCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  relationshipsFrom Relationship[] @relation("RelationshipSource")
+  relationshipsTo   Relationship[] @relation("RelationshipTarget")
+  events         Event[]
+  files          File[]
+  embeddings     Embedding[]
+  payments       Payment[]
+  paymentAllocations PaymentAllocation[]
+  ledgerLinesAsAccount   LedgerLine[] @relation("LedgerLineAccount")
+  ledgerLinesAsSource    LedgerLine[] @relation("LedgerLineSource")
+  journalEntriesAsLedger JournalEntry[] @relation("JournalEntryLedger")
+  timeEntriesForJob      TimeEntry[]  @relation("TimeEntryJob")
+  timeEntriesForWorkOrder TimeEntry[] @relation("TimeEntryWorkOrder")
+  entityTags             EntityTag[]
+  approvals              Approval[]
+  recurringSchedules     RecurringSchedule[]
+  orderLines             OrderLine[]
+
+  @@index([tenantId], map: "idx_entities_tenant_id")
+  @@index([tenantId, moduleId], map: "idx_entities_tenant_module")
+  @@index([tenantId, moduleId, createdAt(sort: Desc)], map: "idx_entities_tenant_module_created")
+  @@index([tenantId, moduleId, deletedAt], map: "idx_entities_tenant_module_deleted")
+  // GIN(data) and FTS on search_text added in migration (see README).
+  @@map("entities")
+}
+
+// =============================================================================
+// RELATIONSHIPS (graph layer — links between entities)
+// e.g. customer -> job, job -> invoice, product -> vendor
+// =============================================================================
+
+model Relationship {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  sourceId     String   @map("source_id") @db.Uuid
+  targetId     String   @map("target_id") @db.Uuid
+  relationType String   @map("relation_type") @db.VarChar(100)
+  data         Json?    @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  source     Entity     @relation("RelationshipSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target     Entity     @relation("RelationshipTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  embeddings Embedding[]
+
+  @@unique([sourceId, targetId, relationType], map: "relationships_source_target_type_unique")
+  @@index([tenantId], map: "idx_relationships_tenant_id")
+  @@index([sourceId], map: "idx_relationships_source_id")
+  @@index([targetId], map: "idx_relationships_target_id")
+  @@index([tenantId, relationType], map: "idx_relationships_tenant_type")
+  @@map("relationships")
+}
+
+// =============================================================================
+// EVENTS (audit + activity — everything that happens)
+// =============================================================================
+
+model Event {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  entityId  String?  @map("entity_id") @db.Uuid
+  eventType String   @map("event_type") @db.VarChar(100)
+  data      Json?
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entity Entity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  createdByUser User? @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([tenantId], map: "idx_events_tenant_id")
+  @@index([tenantId, entityId], map: "idx_events_tenant_entity")
+  @@index([tenantId, eventType], map: "idx_events_tenant_type")
+  @@index([tenantId, createdAt(sort: Desc)], map: "idx_events_tenant_created")
+  @@map("events")
+}
+
+// =============================================================================
+// FILES (documents attached to entities)
+// =============================================================================
+
+model File {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  entityId   String   @map("entity_id") @db.Uuid
+  fileUrl    String   @map("file_url") @db.VarChar(1024)
+  name       String?  @db.VarChar(512)
+  mimeType   String?  @map("mime_type") @db.VarChar(128)
+  sizeBytes  Int?     @map("size_bytes")
+  metadata   Json?
+  uploadedAt DateTime @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entity Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], map: "idx_files_tenant_id")
+  @@index([tenantId, entityId], map: "idx_files_tenant_entity")
+  @@map("files")
+}
+
+// =============================================================================
+// GENERAL LEDGER (double-entry accounting for tenants)
+// Accounts are entities (e.g. module "Account"). Enforce sum(debits)=sum(credits) in app.
+// =============================================================================
+
+model JournalEntry {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  /// Optional: ledger entity (module "Ledger") for multi-ledger tenants (e.g. by region/brand). Null = default ledger.
+  ledgerEntityId String? @map("ledger_entity_id") @db.Uuid
+  entryDate   DateTime @map("entry_date") @db.Date
+  reference   String?  @db.VarChar(255)
+  description String?  @db.Text
+  status      String   @db.VarChar(20)
+  createdBy   String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ledgerEntity  Entity?  @relation("JournalEntryLedger", fields: [ledgerEntityId], references: [id], onDelete: SetNull)
+  lines        LedgerLine[]
+
+  @@index([tenantId], map: "idx_journal_entries_tenant_id")
+  @@index([tenantId, ledgerEntityId], map: "idx_journal_entries_tenant_ledger")
+  @@index([tenantId, entryDate], map: "idx_journal_entries_tenant_date")
+  @@index([tenantId, status], map: "idx_journal_entries_tenant_status")
+  @@map("journal_entries")
+}
+
+model LedgerLine {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  journalEntryId  String   @map("journal_entry_id") @db.Uuid
+  accountEntityId String   @map("account_entity_id") @db.Uuid
+  debitCents      Int      @map("debit_cents") @default(0)
+  creditCents     Int      @map("credit_cents") @default(0)
+  currency        String   @db.VarChar(3)
+  description     String?  @db.VarChar(512)
+  sourceEntityId  String?  @map("source_entity_id") @db.Uuid
+
+  journalEntry    JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  accountEntity   Entity       @relation("LedgerLineAccount", fields: [accountEntityId], references: [id], onDelete: Restrict)
+  sourceEntity    Entity?      @relation("LedgerLineSource", fields: [sourceEntityId], references: [id], onDelete: SetNull)
+
+  @@index([journalEntryId], map: "idx_ledger_lines_journal_entry")
+  @@index([accountEntityId], map: "idx_ledger_lines_account")
+  @@index([sourceEntityId], map: "idx_ledger_lines_source")
+  @@map("ledger_lines")
+}
+
+// =============================================================================
+// TIME ENTRIES (employee hours per job / work order)
+// Users = platform employees; job/work order = entities. Enables hours-by-job reporting.
+// =============================================================================
+
+model TimeEntry {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  jobEntityId     String   @map("job_entity_id") @db.Uuid
+  workOrderEntityId String? @map("work_order_entity_id") @db.Uuid
+  hours           Decimal  @db.Decimal(10, 2)
+  workDate        DateTime @map("work_date") @db.Date
+  description     String?  @db.VarChar(512)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobEntity Entity  @relation("TimeEntryJob", fields: [jobEntityId], references: [id], onDelete: Cascade)
+  workOrderEntity Entity? @relation("TimeEntryWorkOrder", fields: [workOrderEntityId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId], map: "idx_time_entries_tenant_id")
+  @@index([tenantId, userId], map: "idx_time_entries_tenant_user")
+  @@index([tenantId, jobEntityId], map: "idx_time_entries_tenant_job")
+  @@index([tenantId, workOrderEntityId], map: "idx_time_entries_tenant_work_order")
+  @@index([tenantId, workDate], map: "idx_time_entries_tenant_date")
+  @@map("time_entries")
+}
+
+// =============================================================================
+// PAYMENTS (tenant charges their customers — link to invoice/order entity)
+// Tenant connects their own Stripe/Square/etc.; config in tenants.settings.
+// =============================================================================
+
+model Payment {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  entityId    String   @map("entity_id") @db.Uuid
+  amountCents Int     @map("amount_cents")
+  currency    String   @db.VarChar(3)
+  status      String   @db.VarChar(50)
+  provider    String   @db.VarChar(50)
+  externalId  String?  @map("external_id") @db.VarChar(255)
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entity     Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  allocations PaymentAllocation[]
+
+  @@index([tenantId], map: "idx_payments_tenant_id")
+  @@index([tenantId, entityId], map: "idx_payments_tenant_entity")
+  @@index([tenantId, externalId], map: "idx_payments_tenant_external")
+  @@index([tenantId, status], map: "idx_payments_tenant_status")
+  @@map("payments")
+}
+
+// =============================================================================
+// PAYMENT ALLOCATIONS (one payment applied to multiple invoices; clean AR reporting)
+// =============================================================================
+
+model PaymentAllocation {
+  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId     String  @map("payment_id") @db.Uuid
+  entityId      String  @map("entity_id") @db.Uuid
+  amountCents   Int     @map("amount_cents")
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  entity  Entity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId], map: "idx_payment_allocations_payment")
+  @@index([entityId], map: "idx_payment_allocations_entity")
+  @@map("payment_allocations")
+}
+
+// =============================================================================
+// ORDERS & ORDER LINES (customer site checkout — tickets/donations per entity)
+// Order = one checkout; OrderLine = quantity + amount per entity. Tracks who bought and how many per entity.
+// =============================================================================
+
+model Order {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  purchaserName   String   @map("purchaser_name") @db.VarChar(255)
+  purchaserEmail  String   @map("purchaser_email") @db.VarChar(255)
+  status          String   @default("completed") @db.VarChar(50) // completed, pending_payment, canceled
+  totalCents      Int      @map("total_cents")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orderLines OrderLine[]
+
+  @@index([tenantId], map: "idx_orders_tenant_id")
+  @@index([tenantId, createdAt(sort: Desc)], map: "idx_orders_tenant_created")
+  @@map("orders")
+}
+
+model OrderLine {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId          String   @map("order_id") @db.Uuid
+  entityId         String   @map("entity_id") @db.Uuid
+  quantity         Int
+  amountCents      Int      @map("amount_cents")
+  lineType         String   @map("line_type") @db.VarChar(20) // payment | donation
+  checkedInQuantity Int     @default(0) @map("checked_in_quantity")
+
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  entity Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([orderId], map: "idx_order_lines_order_id")
+  @@index([entityId], map: "idx_order_lines_entity_id")
+  @@map("order_lines")
+}
+
+// =============================================================================
+// APPROVALS (quote, PO, time-off, expense, etc. — any entity can need approval)
+// =============================================================================
+
+model Approval {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  entityId     String    @map("entity_id") @db.Uuid
+  approvalType String    @map("approval_type") @db.VarChar(100)
+  requestedBy  String    @map("requested_by") @db.Uuid
+  status       String    @db.VarChar(20)
+  decidedBy    String?   @map("decided_by") @db.Uuid
+  decidedAt    DateTime? @map("decided_at") @db.Timestamptz(6)
+  comment      String?   @db.VarChar(1024)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entity      Entity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  requestedByUser User @relation("ApprovalRequestedBy", fields: [requestedBy], references: [id], onDelete: Cascade)
+  decidedByUser   User? @relation("ApprovalDecidedBy", fields: [decidedBy], references: [id], onDelete: SetNull)
+
+  @@index([tenantId], map: "idx_approvals_tenant_id")
+  @@index([tenantId, status], map: "idx_approvals_tenant_status")
+  @@index([tenantId, entityId], map: "idx_approvals_tenant_entity")
+  @@index([requestedBy], map: "idx_approvals_requested_by")
+  @@map("approvals")
+}
+
+// =============================================================================
+// ENTITY TAGS (flexible labels on any entity — filter "all with tag X" across types)
+// =============================================================================
+
+model EntityTag {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String @map("tenant_id") @db.Uuid
+  entityId  String @map("entity_id") @db.Uuid
+  tag       String @db.VarChar(100)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entity Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, entityId, tag], map: "entity_tags_tenant_entity_tag_unique")
+  @@index([tenantId], map: "idx_entity_tags_tenant_id")
+  @@index([tenantId, tag], map: "idx_entity_tags_tenant_tag")
+  @@index([entityId], map: "idx_entity_tags_entity_id")
+  @@map("entity_tags")
+}
+
+// =============================================================================
+// SAVED VIEWS (tenant-defined list/board/calendar views — filter/sort/columns as JSON; no new schema)
+// Queries still hit entities with same indexes; views only store parameters.
+// =============================================================================
+
+model View {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  moduleId  String?  @map("module_id") @db.Uuid
+  name      String   @db.VarChar(255)
+  viewType  String   @map("view_type") @db.VarChar(50)
+  filter    Json?    @default("{}")
+  sort      Json?    @default("[]")
+  columns   Json?    @default("[]")
+  settings  Json?    @default("{}")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  module Module? @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId], map: "idx_views_tenant_id")
+  @@index([tenantId, moduleId], map: "idx_views_tenant_module")
+  @@map("views")
+}
+
+// =============================================================================
+// EXCHANGE RATES (multi-currency; reporting in home currency)
+// =============================================================================
+
+model ExchangeRate {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  fromCurrency  String   @map("from_currency") @db.VarChar(3)
+  toCurrency    String   @map("to_currency") @db.VarChar(3)
+  rate          Decimal  @db.Decimal(18, 8)
+  effectiveDate DateTime @map("effective_date") @db.Date
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, fromCurrency, toCurrency, effectiveDate], map: "exchange_rates_tenant_currencies_date_unique")
+  @@index([tenantId], map: "idx_exchange_rates_tenant_id")
+  @@index([tenantId, fromCurrency, toCurrency], map: "idx_exchange_rates_tenant_currencies")
+  @@map("exchange_rates")
+}
+
+// =============================================================================
+// FISCAL PERIODS (period close — lock so no new entries; app checks before insert)
+// =============================================================================
+
+model FiscalPeriod {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  periodStart DateTime  @map("period_start") @db.Date
+  periodEnd   DateTime  @map("period_end") @db.Date
+  closedAt    DateTime? @map("closed_at") @db.Timestamptz(6)
+  closedBy    String?   @map("closed_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, periodStart], map: "fiscal_periods_tenant_start_unique")
+  @@index([tenantId], map: "idx_fiscal_periods_tenant_id")
+  @@index([tenantId, periodEnd], map: "idx_fiscal_periods_tenant_end")
+  @@map("fiscal_periods")
+}
+
+// =============================================================================
+// RECURRING SCHEDULES (recurring invoices, subscriptions, etc. — app generates from template entity)
+// =============================================================================
+
+model RecurringSchedule {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  entityId   String    @map("entity_id") @db.Uuid
+  frequency  String    @db.VarChar(50)
+  nextRunAt  DateTime  @map("next_run_at") @db.Timestamptz(6)
+  lastRunAt  DateTime? @map("last_run_at") @db.Timestamptz(6)
+  settings   Json?     @default("{}")
+  isActive   Boolean   @default(true) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entity Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], map: "idx_recurring_schedules_tenant_id")
+  @@index([tenantId, nextRunAt], map: "idx_recurring_schedules_tenant_next_run")
+  @@index([entityId], map: "idx_recurring_schedules_entity_id")
+  @@map("recurring_schedules")
+}
+
+// =============================================================================
+// EMBEDDINGS (AI search — vector column added via raw SQL, see README)
+// Supports chunking, model versioning, source citation; optional relationship_id for graph RAG.
+// =============================================================================
+
+model Embedding {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  entityId       String   @map("entity_id") @db.Uuid
+  /// When set, content describes the relationship (e.g. "Customer X → Job Y") for graph-style semantic search.
+  relationshipId String?  @map("relationship_id") @db.Uuid
+  content        String   @db.Text
+  /// Optional: which field/section (or "relationship") this chunk came from, for citation.
+  sourceField    String?  @map("source_field") @db.VarChar(100)
+  /// Chunk index when content is split (0-based). Null = single chunk.
+  chunkIndex     Int?     @map("chunk_index")
+  /// Total chunks when chunked. Null = single chunk.
+  chunkCount     Int?     @map("chunk_count")
+  /// Embedding model identifier (e.g. "text-embedding-3-small") for re-embedding when model changes.
+  modelName      String?  @map("model_name") @db.VarChar(128)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entity       Entity       @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  relationship Relationship? @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], map: "idx_embeddings_tenant_id")
+  @@index([tenantId, entityId], map: "idx_embeddings_tenant_entity")
+  @@index([tenantId, relationshipId], map: "idx_embeddings_tenant_relationship")
+  @@index([tenantId, modelName], map: "idx_embeddings_tenant_model")
+  @@map("embeddings")
+}
