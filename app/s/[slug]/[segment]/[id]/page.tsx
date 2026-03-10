@@ -124,30 +124,35 @@ export default async function SiteModuleDetailPage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <p className="site-breadcrumb">
+      <nav className="site-detail-breadcrumb" aria-label="Breadcrumb">
         <Link href={`/s/${slug}`}>Home</Link>
-        {" / "}
+        <span className="site-detail-breadcrumb-sep" aria-hidden>/</span>
         <Link href={`/s/${slug}/${segment}`}>{module_.name}</Link>
-        {" / "}
-        <span>Detail</span>
-      </p>
-      <h1>{title}</h1>
-      <dl className="site-detail-list">
-        {module_.fields.map((f) => (
-          <div key={f.id} className="site-detail-row">
-            <dt>{f.name}</dt>
-            <dd>{formatDetailValue(data[f.slug], f.fieldType)}</dd>
-          </div>
-        ))}
+        <span className="site-detail-breadcrumb-sep" aria-hidden>/</span>
+        <span className="site-detail-breadcrumb-current">{title}</span>
+      </nav>
+      <header className="site-detail-header">
+        <span className="site-detail-module-label">{module_.name}</span>
+        <h1 className="site-detail-title">{title}</h1>
         {amountLabel && (
-          <div className="site-detail-row">
-            <dt>{amountLabel.label}</dt>
-            <dd>{amountLabel.value}</dd>
-          </div>
+          <p className="site-detail-price">
+            <span className="site-detail-price-label">{amountLabel.label}:</span>{" "}
+            <span className="site-detail-price-value">{amountLabel.value}</span>
+          </p>
         )}
-      </dl>
-      {amountLabel && (
-        <p style={{ marginTop: "1rem" }}>
+      </header>
+      <section className="site-detail-card" aria-label="Details">
+        <dl className="site-detail-list">
+          {module_.fields.map((f) => (
+            <div key={f.id} className="site-detail-row">
+              <dt>{f.name}</dt>
+              <dd>{formatDetailValue(data[f.slug], f.fieldType)}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      <div className="site-detail-actions">
+        {amountLabel && (
           <AddToCartButton
             tenantSlug={slug}
             segment={segment}
@@ -158,13 +163,11 @@ export default async function SiteModuleDetailPage({
             type={effectiveType === "payment" ? "payment" : "donation"}
             label={effectiveType === "donation" ? "Add to cart" : "Add ticket"}
           />
-        </p>
-      )}
-      <p>
-        <Link href={`/s/${slug}/${segment}`} className="btn btn-secondary">
+        )}
+        <Link href={`/s/${slug}/${segment}`} className="btn btn-secondary site-detail-back">
           ← Back to {module_.name}
         </Link>
-      </p>
+      </div>
     </div>
   );
 }

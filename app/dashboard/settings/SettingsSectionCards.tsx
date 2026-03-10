@@ -12,6 +12,7 @@ type Home =
 
 type SectionId =
   | "customer-ai"
+  | "customer-contact"
   | "customer-hero"
   | "customer-sidebar"
   | "customer-modules"
@@ -22,6 +23,7 @@ type SectionId =
 
 const SECTION_TITLES: Record<SectionId, string> = {
   "customer-ai": "Homepage Text",
+  "customer-contact": "Contact",
   "customer-hero": "Homepage hero image",
   "customer-sidebar": "Homepage right column",
   "customer-modules": "Public modules",
@@ -47,6 +49,17 @@ type Props = {
   homepageSidebarModule?: string;
   homepageSidebarFieldSlugs?: string[];
   currentHomeContent: string;
+  contactFields?: {
+    email?: string;
+    phone?: string;
+    addressLine1?: string;
+    addressLine2?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+    extraContent?: string;
+  };
   currentMetaTitle?: string;
   currentMetaDescription?: string;
   currentOgImage?: string;
@@ -71,6 +84,7 @@ export function SettingsSectionCards(props: Props) {
     homepageSidebarModule = "",
     homepageSidebarFieldSlugs = [],
     currentHomeContent,
+    contactFields = {},
     currentMetaTitle = "",
     currentMetaDescription = "",
     currentOgImage = "",
@@ -82,6 +96,7 @@ export function SettingsSectionCards(props: Props) {
 
   const customerSections: { id: SectionId; title: string; desc: string }[] = [
     { id: "customer-ai", title: "Homepage Text", desc: "Site name, tagline & homepage copy" },
+    { id: "customer-contact", title: "Contact", desc: "Contact page: email, phone, address for the public site" },
     { id: "customer-hero", title: "Homepage hero image", desc: "Optional banner image URL" },
     { id: "customer-sidebar", title: "Homepage right column", desc: "Entity list sidebar" },
     { id: "customer-modules", title: "Public modules", desc: "Which modules appear on the public site" },
@@ -154,6 +169,7 @@ export function SettingsSectionCards(props: Props) {
             currentSiteName={currentSiteName}
             currentTagline={currentTagline}
             currentHomeContent={currentHomeContent}
+            contactFields={contactFields}
             currentMetaTitle={currentMetaTitle}
             currentMetaDescription={currentMetaDescription}
             currentOgImage={currentOgImage}
@@ -223,6 +239,7 @@ function SectionModalContent(
     currentSiteName: string;
     currentTagline: string;
     currentHomeContent: string;
+    contactFields: { email?: string; phone?: string; addressLine1?: string; addressLine2?: string; city?: string; state?: string; postalCode?: string; country?: string; extraContent?: string };
     currentMetaTitle: string;
     currentMetaDescription: string;
     currentOgImage: string;
@@ -235,12 +252,22 @@ function SectionModalContent(
       <div className="settings-modal-body">
         <GenerateSiteAiForm
           tenantId={props.tenantId}
+          updateAction={props.updateAction}
           currentSiteName={props.currentSiteName}
           currentTagline={props.currentTagline}
           currentHomeContent={props.currentHomeContent}
+          publicModules={props.publicModules}
+          modulePaymentTypes={props.modulePaymentTypes}
+          modules={props.modules}
+          currentHeroImage={props.currentHeroImage}
+          homepageSidebarModule={props.homepageSidebarModule}
+          homepageSidebarFieldSlugs={props.homepageSidebarFieldSlugs}
         />
       </div>
     );
+  }
+  if (sectionId === "customer-contact") {
+    return <CustomerContactForm {...props} />;
   }
   if (sectionId === "customer-hero") {
     return <CustomerHeroForm {...props} />;
@@ -264,6 +291,86 @@ function SectionModalContent(
     return <BackendApiForm {...props} />;
   }
   return null;
+}
+
+function CustomerContactForm({
+  updateAction,
+  publicModules,
+  modulePaymentTypes,
+  modules,
+  currentHeroImage,
+  homepageSidebarModule,
+  homepageSidebarFieldSlugs,
+  contactFields,
+}: {
+  updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  publicModules: Record<string, { slug: string; showInNav?: boolean }>;
+  modulePaymentTypes: Record<string, "payment" | "donation" | null>;
+  modules: { id: string; name: string; slug: string }[];
+  currentHeroImage: string;
+  homepageSidebarModule: string;
+  homepageSidebarFieldSlugs: string[];
+  contactFields: { email?: string; phone?: string; addressLine1?: string; addressLine2?: string; city?: string; state?: string; postalCode?: string; country?: string; extraContent?: string };
+}) {
+  const [state, formAction] = useActionState(updateAction, null);
+  const c = contactFields;
+  return (
+    <form action={formAction} className="settings-form">
+      <input type="hidden" name="settingsSection" value="customer" />
+      <CustomerHiddenInputs
+        publicModules={publicModules}
+        modulePaymentTypes={modulePaymentTypes}
+        modules={modules}
+        siteHeroImage={currentHeroImage}
+        homepageSidebarModule={homepageSidebarModule}
+        homepageSidebarFieldSlugs={homepageSidebarFieldSlugs}
+        exclude="pages"
+      />
+      <div className="settings-single-section">
+        <p className="settings-hint">Dedicated fields shown on your public Contact page. All optional.</p>
+        <div className="form-group">
+          <label htmlFor="contact-email">Email</label>
+          <input id="contact-email" name="contactEmail" type="email" defaultValue={c.email ?? ""} placeholder="contact@example.com" className="form-control" />
+        </div>
+        <div className="form-group">
+          <label htmlFor="contact-phone">Phone</label>
+          <input id="contact-phone" name="contactPhone" type="tel" defaultValue={c.phone ?? ""} placeholder="+1 (555) 000-0000" className="form-control" />
+        </div>
+        <div className="form-group">
+          <label htmlFor="contact-address-line1">Address line 1</label>
+          <input id="contact-address-line1" name="contactAddressLine1" type="text" defaultValue={c.addressLine1 ?? ""} placeholder="Street address" className="form-control" />
+        </div>
+        <div className="form-group">
+          <label htmlFor="contact-address-line2">Address line 2</label>
+          <input id="contact-address-line2" name="contactAddressLine2" type="text" defaultValue={c.addressLine2 ?? ""} placeholder="Suite, unit, etc." className="form-control" />
+        </div>
+        <div className="form-row" style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+          <div className="form-group" style={{ flex: "1 1 8rem" }}>
+            <label htmlFor="contact-city">City</label>
+            <input id="contact-city" name="contactCity" type="text" defaultValue={c.city ?? ""} placeholder="City" className="form-control" />
+          </div>
+          <div className="form-group" style={{ flex: "0 1 6rem" }}>
+            <label htmlFor="contact-state">State / Province</label>
+            <input id="contact-state" name="contactState" type="text" defaultValue={c.state ?? ""} placeholder="State" className="form-control" />
+          </div>
+          <div className="form-group" style={{ flex: "0 1 6rem" }}>
+            <label htmlFor="contact-postal">Postal code</label>
+            <input id="contact-postal" name="contactPostalCode" type="text" defaultValue={c.postalCode ?? ""} placeholder="ZIP / Postal" className="form-control" />
+          </div>
+        </div>
+        <div className="form-group">
+          <label htmlFor="contact-country">Country</label>
+          <input id="contact-country" name="contactCountry" type="text" defaultValue={c.country ?? ""} placeholder="Country" className="form-control" />
+        </div>
+        <div className="form-group">
+          <label htmlFor="contact-extra">Additional content (optional HTML)</label>
+          <textarea id="contact-extra" name="contactExtraContent" rows={4} defaultValue={c.extraContent ?? ""} placeholder="Extra text or HTML below the contact details" className="form-control" />
+        </div>
+      </div>
+      {state && typeof state === "object" && "error" in state ? <p className="view-error" role="alert">{String((state as { error: string }).error)}</p> : null}
+      <button type="submit" className="btn btn-primary">Save</button>
+    </form>
+  );
 }
 
 function CustomerHeroForm({
@@ -513,7 +620,7 @@ function CustomerHiddenInputs({
   siteHeroImage: string;
   homepageSidebarModule: string;
   homepageSidebarFieldSlugs: string[];
-  exclude: "hero" | "sidebar" | "modules" | "seo";
+  exclude: "hero" | "sidebar" | "modules" | "seo" | "pages" | "home";
 }) {
   return (
     <>

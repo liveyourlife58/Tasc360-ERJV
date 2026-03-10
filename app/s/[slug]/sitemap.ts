@@ -31,7 +31,6 @@ export default async function sitemap({
   };
 
   add(`/s/${slug}`);
-  add(`/s/${slug}/about`);
   add(`/s/${slug}/contact`);
 
   const publicModules = getPublicModulesFromSettings(tenant.settings);

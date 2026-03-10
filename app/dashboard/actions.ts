@@ -451,6 +451,20 @@ export async function updateDashboardSettings(
 
   if (section !== "backend") {
     const site = (settings.site as Record<string, unknown>) ?? {};
+    if (formData.has("siteName")) {
+      const v = (formData.get("siteName") as string)?.trim();
+      site.name = v || undefined;
+    }
+    if (formData.has("tagline")) {
+      const v = (formData.get("tagline") as string)?.trim();
+      site.tagline = v || undefined;
+    }
+    if (formData.has("homeContent")) {
+      const pages = (settings.pages as Record<string, unknown>) ?? {};
+      const v = (formData.get("homeContent") as string)?.trim();
+      pages.home = v || undefined;
+      settings.pages = Object.keys(pages).length ? pages : undefined;
+    }
     const publicModules: Record<string, { slug: string; showInNav: boolean }> = {};
     for (const [key, value] of formData.entries()) {
       if (key.startsWith("publicModule_enabled_") && value === "1") {
@@ -483,6 +497,30 @@ export async function updateDashboardSettings(
       site.homepageSidebarFieldSlugs = sidebarFieldSlugs.length ? sidebarFieldSlugs : undefined;
     }
     settings.site = Object.keys(site).length ? site : undefined;
+    if (formData.has("contactEmail")) {
+      const pages = (settings.pages as Record<string, unknown>) ?? {};
+      const email = ((formData.get("contactEmail") as string) ?? "").trim();
+      const phone = ((formData.get("contactPhone") as string) ?? "").trim();
+      const addressLine1 = ((formData.get("contactAddressLine1") as string) ?? "").trim();
+      const addressLine2 = ((formData.get("contactAddressLine2") as string) ?? "").trim();
+      const city = ((formData.get("contactCity") as string) ?? "").trim();
+      const state = ((formData.get("contactState") as string) ?? "").trim();
+      const postalCode = ((formData.get("contactPostalCode") as string) ?? "").trim();
+      const country = ((formData.get("contactCountry") as string) ?? "").trim();
+      const extraContent = ((formData.get("contactExtraContent") as string) ?? "").trim();
+      const contact: Record<string, string> = {};
+      if (email) contact.email = email;
+      if (phone) contact.phone = phone;
+      if (addressLine1) contact.addressLine1 = addressLine1;
+      if (addressLine2) contact.addressLine2 = addressLine2;
+      if (city) contact.city = city;
+      if (state) contact.state = state;
+      if (postalCode) contact.postalCode = postalCode;
+      if (country) contact.country = country;
+      if (extraContent) contact.extraContent = extraContent;
+      pages.contact = Object.keys(contact).length ? contact : undefined;
+      settings.pages = Object.keys(pages).length ? pages : undefined;
+    }
     const { mergeModulePaymentType } = await import("@/lib/module-settings");
     const allModules = await prisma.module.findMany({
       where: { tenantId },

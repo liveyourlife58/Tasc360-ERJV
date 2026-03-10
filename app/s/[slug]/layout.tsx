@@ -100,10 +100,11 @@ export default async function SiteLayout({
                   </Link>
                 ) : null;
               })}
-              <Link href={`/s/${tenant.slug}/about`}>About</Link>
               <Link href={`/s/${tenant.slug}/contact`}>Contact</Link>
-              <CartLink tenantSlug={tenant.slug} />
             </nav>
+            <div className="site-header-cart">
+              <CartLink tenantSlug={tenant.slug} />
+            </div>
           </div>
         </header>
         <main className="site-main">{children}</main>

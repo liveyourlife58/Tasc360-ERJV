@@ -347,6 +347,43 @@ a {
   min-width: 0;
 }
 
+.ai-generated-current-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.ai-generated-current-header .ai-prompt-label {
+  margin: 0;
+}
+
+.ai-edit-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.ai-edit-icon-btn:hover {
+  color: #475569;
+}
+
+.ai-edit-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.ai-manual-edit-form .form-group {
+  margin-bottom: 1rem;
+}
+
 .ai-homepage-two-col .ai-generated-current {
   margin-top: 0;
 }
@@ -416,7 +453,7 @@ a {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
+  gap: 0.75rem;
 }
 
 .view-tab {
@@ -476,7 +513,7 @@ a {
 }
 
 .view-tab-edit-views {
-  margin-left: 0.5rem;
+  margin-left: 1.5rem;
   font-size: 0.8125rem;
   color: #6b7280;
 }
@@ -1137,9 +1174,33 @@ a {
   max-width: 1200px;
   margin: 0 auto;
   padding: 1rem 1.5rem;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
+  gap: 1rem;
+}
+
+.site-header-inner .site-logo {
+  justify-self: start;
+}
+
+.site-header-inner .site-nav {
+  justify-self: center;
+}
+
+.site-header-cart {
+  justify-self: end;
+}
+
+.site-header-cart a {
+  color: #374151;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.site-header-cart a:hover {
+  color: var(--site-primary, #4f46e5);
 }
 
 .site-logo {
@@ -1161,7 +1222,7 @@ a {
 
 .site-nav {
   display: flex;
-  gap: 1.5rem;
+  gap: 2.5rem;
 }
 
 .site-nav a {
@@ -1435,6 +1496,98 @@ a {
   margin-bottom: 1rem;
 }
 
+/* Contact page: structured layout */
+.site-contact {
+  margin-bottom: 2rem;
+}
+
+.site-contact-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+
+.site-contact-grid--single {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 640px) {
+  .site-contact-grid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+}
+
+.site-contact-block {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 2rem 1.5rem;
+  text-align: center;
+}
+
+.site-contact-block-title {
+  margin: 0 0 1.25rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: 0.01em;
+}
+
+.site-contact-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 1.25rem;
+}
+
+.site-contact-row:last-child {
+  margin-bottom: 0;
+}
+
+.site-contact-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+}
+
+.site-contact-link {
+  font-size: 1.125rem;
+  font-weight: 500;
+  color: var(--site-primary, #4f46e5);
+  text-decoration: none;
+}
+
+.site-contact-link:hover {
+  text-decoration: underline;
+}
+
+.site-contact-address {
+  font-style: normal;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.site-contact-address-line {
+  display: block;
+  font-size: 1.125rem;
+  line-height: 1.5;
+  color: #374151;
+}
+
+.site-contact-extra {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e5e7eb;
+}
+
 .site-footer {
   border-top: 1px solid #e5e7eb;
   background: #f9fafb;
@@ -1520,26 +1673,154 @@ a {
   color: var(--site-primary, #4f46e5);
 }
 
+/* Entity detail page */
+.site-module-detail {
+  max-width: 720px;
+}
+
+.site-detail-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin-bottom: 1.25rem;
+}
+
+.site-detail-breadcrumb a {
+  color: var(--site-primary, #4f46e5);
+}
+
+.site-detail-breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.site-detail-breadcrumb-sep {
+  color: #9ca3af;
+  user-select: none;
+}
+
+.site-detail-breadcrumb-current {
+  color: #374151;
+  font-weight: 500;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-detail-header {
+  margin-bottom: 1.5rem;
+}
+
+.site-detail-module-label {
+  display: inline-block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--site-primary, #4f46e5);
+  margin-bottom: 0.35rem;
+}
+
+.site-detail-title {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #111827;
+  line-height: 1.25;
+  margin: 0 0 0.5rem;
+}
+
+.site-detail-price {
+  margin: 0;
+  font-size: 1.125rem;
+  color: #374151;
+}
+
+.site-detail-price-label {
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.site-detail-price-value {
+  font-weight: 600;
+  color: #111827;
+}
+
+.site-detail-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
 .site-detail-list {
-  margin: 1rem 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .site-detail-row {
   display: grid;
   grid-template-columns: 140px 1fr;
-  gap: 0.5rem 1rem;
-  padding: 0.5rem 0;
+  gap: 0.75rem 1.5rem;
+  padding: 0.875rem 0;
   border-bottom: 1px solid #f3f4f6;
+  align-items: baseline;
+}
+
+.site-detail-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.site-detail-row:first-child {
+  padding-top: 0;
 }
 
 .site-detail-row dt {
+  font-size: 0.875rem;
   font-weight: 500;
-  color: #374151;
+  color: #6b7280;
+  margin: 0;
 }
 
 .site-detail-row dd {
   margin: 0;
+  font-size: 1rem;
   color: #111827;
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  .site-detail-row {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+    padding: 0.75rem 0;
+  }
+
+  .site-detail-title {
+    font-size: 1.5rem;
+  }
+}
+
+.site-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+
+.site-detail-actions .btn {
+  margin: 0;
+}
+
+.site-detail-back {
+  font-size: 0.9375rem;
 }
 
 .site-json {

@@ -91,16 +91,13 @@ export default async function SiteHomePage({
         dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }}
       />
       <div className="site-home-main">
-        <section
-          className={"site-hero" + (heroImage ? " site-hero-with-image" : "")}
-          style={heroImage ? { backgroundImage: `url(${heroImage})` } : undefined}
-        >
-          {heroImage && <div className="site-hero-overlay" aria-hidden />}
-          <div className="site-hero-inner">
-            <h1 className="site-hero-title">{siteName}</h1>
-            {tagline && <p className="site-hero-tagline">{tagline}</p>}
-          </div>
-        </section>
+        {heroImage && (
+          <section
+            className="site-hero site-hero-with-image"
+            style={{ backgroundImage: `url(${heroImage})` }}
+            aria-hidden
+          />
+        )}
         <section className="site-content">
           {homeContent ? (
             <div
