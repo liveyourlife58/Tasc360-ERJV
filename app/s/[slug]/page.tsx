@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import Link from "next/link";
@@ -128,11 +129,7 @@ export default async function SiteHomePage({
             <ul className="site-home-sidebar-list">
               {sidebarEntities.map((entity) => {
                 const data = (entity.data as Record<string, unknown>) ?? {};
-                const firstFieldSlug = sidebarModule!.fields[0]?.slug ?? "name";
-                const title =
-                  String(
-                    data[firstFieldSlug] ?? data.name ?? entity.id.slice(0, 8)
-                  ).slice(0, 60) || "Untitled";
+                const title = getSidebarCardTitle(data, sidebarModule!.fields, entity.id);
                 const displayFields =
                   homepageSidebarFieldSlugs?.length &&
                   homepageSidebarFieldSlugs.some((s) =>
@@ -149,7 +146,7 @@ export default async function SiteHomePage({
                           {displayFields.map((f) => (
                             <div key={f.id}>
                               <dt>{f.name}</dt>
-                              <dd>{formatSidebarValue(data[f.slug], f.fieldType)}</dd>
+                              <dd>{formatSidebarCellValue(data[f.slug], f.fieldType)}</dd>
                             </div>
                           ))}
                         </dl>
@@ -166,7 +163,31 @@ export default async function SiteHomePage({
   );
 }
 
-function formatSidebarValue(value: unknown, fieldType: string): string {
+function getSidebarCardTitle(
+  data: Record<string, unknown>,
+  fields: { slug: string; fieldType: string }[],
+  entityId: string
+): string {
+  for (const f of fields) {
+    if (f.fieldType === "file") continue;
+    const v = data[f.slug];
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (!s) continue;
+    if (s.startsWith("http") || s.startsWith("//")) continue;
+    return s.slice(0, 60);
+  }
+  const fallback = String(data.name ?? entityId.slice(0, 8)).trim();
+  const s = fallback.slice(0, 60);
+  return s && !s.startsWith("http") && !s.startsWith("//") ? s : "Untitled";
+}
+
+function formatSidebarCellValue(value: unknown, fieldType: string): ReactNode {
+  if (fieldType === "file" && typeof value === "string" && value.trim() !== "") {
+    const url = value.trim();
+    if (url.startsWith("http") || url.startsWith("//"))
+      return <img src={url} alt="" className="site-sidebar-cell-image" />;
+  }
   if (value == null) return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   const dateStr = formatDateIfApplicable(value, fieldType);

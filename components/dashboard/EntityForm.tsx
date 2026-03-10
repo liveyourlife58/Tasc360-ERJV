@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState, useRef, useEffect } from "react";
+import { BlobUploadInput } from "@/components/dashboard/BlobUploadInput";
 
 type Field = {
   id: string;
@@ -416,6 +417,17 @@ function FieldInput({
           defaultValue={str}
           required={field.isRequired}
           rows={4}
+        />
+      );
+    case "file":
+      return (
+        <BlobUploadInput
+          name={field.slug}
+          id={id}
+          defaultValue={str}
+          label=""
+          placeholder="Paste image URL or upload below"
+          required={field.isRequired}
         />
       );
     case "text":

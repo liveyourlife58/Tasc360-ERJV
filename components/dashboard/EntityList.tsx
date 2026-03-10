@@ -156,5 +156,11 @@ function formatCellValue(
   if (typeof value === "boolean") return value ? "Yes" : "No";
   const dateStr = formatDateIfApplicable(value, field.fieldType);
   if (dateStr !== null) return dateStr;
+  if (field.fieldType === "file" && typeof value === "string" && value.trim() !== "") {
+    const url = value.trim();
+    if (url.startsWith("http") || url.startsWith("//"))
+      return <img src={url} alt="" className="entity-list-cell-image" />;
+    return url;
+  }
   return String(value);
 }

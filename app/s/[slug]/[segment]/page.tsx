@@ -124,11 +124,11 @@ export default async function SiteModuleListPage({
                     {columns.map((f) => (
                       <td key={f.id}>
                         {f.slug === (module_.fields[0]?.slug ?? "name") ? (
-                          <Link href={`/s/${slug}/${segment}/${entity.id}`}>
-                            {formatValue(data[f.slug], f.fieldType) || title}
+                          <Link href={`/s/${slug}/${segment}/${entity.id}`} className="site-entity-list-title-cell">
+                            {formatCellValue(data[f.slug], f.fieldType) || title}
                           </Link>
                         ) : (
-                          formatValue(data[f.slug], f.fieldType)
+                          formatCellValue(data[f.slug], f.fieldType)
                         )}
                       </td>
                     ))}
@@ -177,4 +177,13 @@ function formatValue(value: unknown, fieldType: string): string {
   const dateStr = formatDateIfApplicable(value, fieldType);
   if (dateStr !== null) return dateStr;
   return String(value).slice(0, 40);
+}
+
+function formatCellValue(value: unknown, fieldType: string): React.ReactNode {
+  if (fieldType === "file" && typeof value === "string" && value.trim() !== "") {
+    const url = value.trim();
+    if (url.startsWith("http") || url.startsWith("//"))
+      return <img src={url} alt="" className="entity-list-cell-image" />;
+  }
+  return formatValue(value, fieldType);
 }

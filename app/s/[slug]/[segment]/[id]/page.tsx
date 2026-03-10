@@ -188,5 +188,11 @@ function formatDetailValue(value: unknown, fieldType: string): React.ReactNode {
   if (dateStr !== null) return dateStr;
   if (fieldType === "json" && typeof value === "object")
     return <pre className="site-json">{JSON.stringify(value, null, 2)}</pre>;
+  if (fieldType === "file" && typeof value === "string" && value.trim() !== "") {
+    const url = value.trim();
+    if (url.startsWith("http") || url.startsWith("//"))
+      return <img src={url} alt="" className="site-detail-image" />;
+    return url;
+  }
   return String(value);
 }

@@ -122,6 +122,18 @@ a {
   background: #f9fafb;
 }
 
+.entity-list-cell-image,
+.site-sidebar-cell-image {
+  display: block;
+  max-height: 2.5rem;
+  max-width: 4rem;
+  width: auto;
+  height: auto;
+  object-fit: cover;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
 /* Forms */
 .form-group {
   margin-bottom: 1rem;
@@ -1796,6 +1808,14 @@ a {
   line-height: 1.5;
 }
 
+.site-detail-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  display: block;
+  margin-top: 0.25rem;
+}
+
 @media (max-width: 480px) {
   .site-detail-row {
     grid-template-columns: 1fr;
@@ -1842,4 +1862,28 @@ a {
   color: #065f46;
   border-radius: 8px;
   margin-bottom: 1rem;
+}
+
+/* Blob upload (dashboard) */
+.blob-upload-row {
+  margin-top: 0.25rem;
+}
+
+.blob-upload-label {
+  display: inline-block;
+  cursor: pointer;
+}
+
+.blob-upload-file {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.blob-upload-label .btn-sm {
+  font-size: 0.875rem;
+  padding: 0.35rem 0.75rem;
 }

@@ -1287,3 +1287,4 @@ export async function generateSiteFromAi(
   revalidatePath("/s/[slug]");
   redirect("/dashboard/settings");
 }
+

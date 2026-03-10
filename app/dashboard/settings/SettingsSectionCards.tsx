@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useActionState } from "react";
 import { GenerateSiteAiForm } from "./GenerateSiteAiForm";
+import { BlobUploadInput } from "@/components/dashboard/BlobUploadInput";
 
 type Branding = { name?: string; logo?: string; primaryColor?: string };
 type Home =
@@ -407,10 +408,13 @@ function CustomerHeroForm({
       />
       <div className="settings-single-section">
         <p className="settings-hint">Optional image shown at the top of your public site homepage. Use a URL to an image (e.g. from your own hosting or a CDN).</p>
-        <div className="form-group">
-          <label htmlFor="site-hero-image">Hero image URL</label>
-          <input id="site-hero-image" name="siteHeroImage" type="url" defaultValue={currentHeroImage} placeholder="https://..." className="form-control" />
-        </div>
+        <BlobUploadInput
+          name="siteHeroImage"
+          id="site-hero-image"
+          label="Hero image URL"
+          defaultValue={currentHeroImage}
+          placeholder="https://... or upload below"
+        />
       </div>
       {state && typeof state === "object" && "error" in state ? <p className="view-error" role="alert">{String((state as { error: string }).error)}</p> : null}
       <button type="submit" className="btn btn-primary">Save</button>
