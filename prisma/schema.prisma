@@ -56,6 +56,10 @@ model Tenant {
   fiscalPeriods      FiscalPeriod[]
   consents           Consent[]
   orders             Order[]
+  webhookDeliveries  WebhookDelivery[]
+  webhookRetries     WebhookRetry[]
+  idempotencyKeys    IdempotencyKey[]
+  apiKeys            ApiKey[]
 
   @@index([slug], map: "idx_tenants_slug")
   @@index([parentTenantId], map: "idx_tenants_parent")
@@ -97,10 +101,50 @@ model User {
   approvalsDecided   Approval[] @relation("ApprovalDecidedBy")
   consents   Consent[]
 
+  passwordResetTokens PasswordResetToken[]
+
   @@unique([tenantId, email], map: "users_tenant_email_unique")
   @@index([tenantId], map: "idx_users_tenant_id")
   @@index([tenantId, email], map: "idx_users_tenant_email")
   @@map("users")
+}
+
+// =============================================================================
+// PASSWORD RESET (one-time token; expires after use or TTL)
+// =============================================================================
+
+model PasswordResetToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String   @unique @db.VarChar(64)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token], map: "idx_password_reset_tokens_token")
+  @@index([expiresAt], map: "idx_password_reset_tokens_expires")
+  @@map("password_reset_tokens")
+}
+
+// =============================================================================
+// API KEYS (per-tenant; multiple keys, hashed, optional rotation)
+// =============================================================================
+
+model ApiKey {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  name       String    @db.VarChar(100)
+  keyPrefix  String    @map("key_prefix") @db.VarChar(20)
+  keyHash    String    @map("key_hash") @db.VarChar(64)
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([keyPrefix], map: "api_keys_key_prefix_unique")
+  @@index([tenantId], map: "idx_api_keys_tenant_id")
+  @@map("api_keys")
 }
 
 // =============================================================================
@@ -226,6 +270,7 @@ model Entity {
   journalEntriesAsLedger JournalEntry[] @relation("JournalEntryLedger")
   timeEntriesForJob      TimeEntry[]  @relation("TimeEntryJob")
   timeEntriesForWorkOrder TimeEntry[] @relation("TimeEntryWorkOrder")
+  timeEntriesForVolunteer TimeEntry[] @relation("TimeEntryVolunteer")
   entityTags             EntityTag[]
   approvals              Approval[]
   recurringSchedules     RecurringSchedule[]
@@ -370,7 +415,9 @@ model LedgerLine {
 model TimeEntry {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId        String   @map("tenant_id") @db.Uuid
-  userId          String   @map("user_id") @db.Uuid
+  userId          String?  @map("user_id") @db.Uuid
+  /// Optional: when set, hours are logged for a constituent/volunteer (entity) instead of a platform user. Used for nonprofit volunteer time.
+  volunteerEntityId String? @map("volunteer_entity_id") @db.Uuid
   jobEntityId     String   @map("job_entity_id") @db.Uuid
   workOrderEntityId String? @map("work_order_entity_id") @db.Uuid
   hours           Decimal  @db.Decimal(10, 2)
@@ -380,12 +427,14 @@ model TimeEntry {
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  volunteerEntity Entity? @relation("TimeEntryVolunteer", fields: [volunteerEntityId], references: [id], onDelete: SetNull)
   jobEntity Entity  @relation("TimeEntryJob", fields: [jobEntityId], references: [id], onDelete: Cascade)
   workOrderEntity Entity? @relation("TimeEntryWorkOrder", fields: [workOrderEntityId], references: [id], onDelete: SetNull)
 
   @@index([tenantId], map: "idx_time_entries_tenant_id")
   @@index([tenantId, userId], map: "idx_time_entries_tenant_user")
+  @@index([tenantId, volunteerEntityId], map: "idx_time_entries_tenant_volunteer")
   @@index([tenantId, jobEntityId], map: "idx_time_entries_tenant_job")
   @@index([tenantId, workOrderEntityId], map: "idx_time_entries_tenant_work_order")
   @@index([tenantId, workDate], map: "idx_time_entries_tenant_date")
@@ -597,6 +646,47 @@ model FiscalPeriod {
 }
 
 // =============================================================================
+// WEBHOOK DELIVERIES (log last N per tenant for "Recent deliveries" UI)
+// =============================================================================
+
+model WebhookDelivery {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  event       String   @db.VarChar(100)
+  url         String   @db.VarChar(2048)
+  success     Boolean  @db.Boolean
+  statusCode  Int?     @map("status_code")
+  errorMessage String? @map("error_message") @db.VarChar(1024)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], map: "idx_webhook_deliveries_tenant_id")
+  @@index([tenantId, createdAt(sort: Desc)], map: "idx_webhook_deliveries_tenant_created")
+  @@map("webhook_deliveries")
+}
+
+// =============================================================================
+// WEBHOOK RETRIES (pending retries with backoff; processed by cron)
+// =============================================================================
+
+model WebhookRetry {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  event       String   @db.VarChar(100)
+  url         String   @db.VarChar(2048)
+  payload     Json     @db.JsonB
+  attemptCount Int     @map("attempt_count")
+  nextRetryAt DateTime @map("next_retry_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([nextRetryAt], map: "idx_webhook_retries_next_retry")
+  @@map("webhook_retries")
+}
+
+// =============================================================================
 // RECURRING SCHEDULES (recurring invoices, subscriptions, etc. — app generates from template entity)
 // =============================================================================
 
@@ -652,4 +742,35 @@ model Embedding {
   @@index([tenantId, relationshipId], map: "idx_embeddings_tenant_relationship")
   @@index([tenantId, modelName], map: "idx_embeddings_tenant_model")
   @@map("embeddings")
+}
+
+// =============================================================================
+// IDEMPOTENCY KEYS (tenant API — avoid duplicate create/update on retry)
+// =============================================================================
+
+model IdempotencyKey {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  key          String   @db.VarChar(255)
+  statusCode   Int      @map("status_code")
+  responseBody String?  @map("response_body") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key], map: "idempotency_keys_tenant_key_unique")
+  @@index([tenantId, key], map: "idx_idempotency_keys_tenant_key")
+  @@index([createdAt], map: "idx_idempotency_keys_created_at")
+  @@map("idempotency_keys")
+}
+
+// =============================================================================
+// STRIPE WEBHOOK IDEMPOTENCY (dedupe retries by event id)
+// =============================================================================
+
+model StripeProcessedEvent {
+  id        String   @id @map("stripe_event_id") @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("stripe_processed_events")
 }

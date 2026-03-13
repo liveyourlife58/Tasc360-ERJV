@@ -1,10 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useActionState } from "react";
 import { EditViewForm } from "@/components/dashboard/EditViewForm";
 
-type ViewItem = { id: string; name: string; columns: string[] };
+type ViewItem = {
+  id: string;
+  name: string;
+  columns: string[];
+  viewType?: string;
+  settings?: { boardColumnField?: string; dateField?: string } | null;
+  filter?: unknown[];
+  sort?: unknown[];
+};
 
 function InlineDeleteViewForm({
   viewId,
@@ -49,6 +58,10 @@ export function ViewSelector({
   deleteViewAction,
   editViewsOpen: controlledEditViewsOpen,
   onEditViewsOpenChange,
+  selectFieldSlugs,
+  dateFieldSlugs,
+  defaultViewId,
+  setDefaultViewAction,
 }: {
   moduleSlug: string;
   views: ViewItem[];
@@ -58,7 +71,12 @@ export function ViewSelector({
   deleteViewAction: (viewId: string, moduleSlug: string, prev: unknown, formData: FormData) => Promise<unknown>;
   editViewsOpen?: boolean;
   onEditViewsOpenChange?: (open: boolean) => void;
+  selectFieldSlugs?: string[];
+  dateFieldSlugs?: string[];
+  defaultViewId?: string | null;
+  setDefaultViewAction?: (moduleSlug: string, viewId: string | null) => Promise<{ error?: string }>;
 }) {
+  const router = useRouter();
   const [internalOpen, setInternalOpen] = useState(false);
   const editViewsOpen = onEditViewsOpenChange ? (controlledEditViewsOpen ?? false) : internalOpen;
   const setEditViewsOpen = onEditViewsOpenChange ?? setInternalOpen;
@@ -67,6 +85,12 @@ export function ViewSelector({
 
   const baseUrl = `/dashboard/m/${moduleSlug}`;
   const editingView = editingViewId ? views.find((v) => v.id === editingViewId) : null;
+
+  async function handleSetDefault(viewId: string | null) {
+    if (!setDefaultViewAction) return;
+    await setDefaultViewAction(moduleSlug, viewId);
+    router.refresh();
+  }
 
   return (
     <div className="view-selector">
@@ -78,13 +102,15 @@ export function ViewSelector({
           All
         </Link>
         {views.map((v) => (
-          <Link
-            key={v.id}
-            href={`${baseUrl}?view=${v.id}`}
-            className={`view-tab ${currentViewId === v.id ? "active" : ""}`}
-          >
-            {v.name}
-          </Link>
+          <span key={v.id} className="view-tab-wrap">
+            <Link
+              href={`${baseUrl}?view=${v.id}`}
+              className={`view-tab ${currentViewId === v.id ? "active" : ""}`}
+            >
+              {v.name}
+              {defaultViewId === v.id ? " ★" : ""}
+            </Link>
+          </span>
         ))}
         {!onEditViewsOpenChange && (
           <button
@@ -135,7 +161,14 @@ export function ViewSelector({
                     moduleSlug={moduleSlug}
                     initialName={editingView.name}
                     initialColumns={editingView.columns}
+                    initialViewType={(editingView.viewType === "board" || editingView.viewType === "calendar" ? editingView.viewType : "list") as "list" | "board" | "calendar"}
+                    initialBoardColumnField={(editingView.settings as { boardColumnField?: string })?.boardColumnField ?? null}
+                    initialDateField={(editingView.settings as { dateField?: string })?.dateField ?? null}
+                    initialFilter={Array.isArray(editingView.filter) ? editingView.filter : []}
+                    initialSort={Array.isArray(editingView.sort) ? editingView.sort : []}
                     fieldSlugs={fieldSlugs}
+                    selectFieldSlugs={selectFieldSlugs ?? []}
+                    dateFieldSlugs={dateFieldSlugs ?? []}
                     action={updateViewAction.bind(null, editingView.id, moduleSlug)}
                     deleteAction={deleteViewAction.bind(null, editingView.id, moduleSlug)}
                   />
@@ -148,8 +181,21 @@ export function ViewSelector({
                     <ul className="edit-views-list-ul">
                       {views.map((v) => (
                         <li key={v.id} className="edit-views-list-item">
-                          <span className="edit-views-list-name">{v.name}</span>
+                          <span className="edit-views-list-name">
+                            {v.name}
+                            {defaultViewId === v.id ? " (default)" : ""}
+                          </span>
                           <div className="edit-views-list-actions">
+                            {setDefaultViewAction && (
+                              <button
+                                type="button"
+                                className="btn btn-secondary edit-views-btn"
+                                onClick={() => handleSetDefault(defaultViewId === v.id ? null : v.id)}
+                                title={defaultViewId === v.id ? "Clear default view" : "Set as default view for this module"}
+                              >
+                                {defaultViewId === v.id ? "Clear default" : "Set default"}
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="btn btn-secondary edit-views-btn"

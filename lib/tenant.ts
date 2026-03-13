@@ -50,6 +50,23 @@ export async function getTenantBySlug(slug: string) {
   });
 }
 
+/** Resolve tenant by custom domain (e.g. donate.tenant.org). Store in tenant.settings.site.customDomain. */
+export async function getTenantByCustomDomain(host: string | null): Promise<{ id: string; slug: string } | null> {
+  if (!host || typeof host !== "string") return null;
+  const normalized = host.toLowerCase().replace(/^www\./, "").trim();
+  if (!normalized) return null;
+  const tenants = await prisma.tenant.findMany({
+    where: { isActive: true },
+    select: { id: true, slug: true, settings: true },
+  });
+  for (const t of tenants) {
+    const site = (t.settings as Record<string, unknown>)?.site as Record<string, unknown> | undefined;
+    const customDomain = (site?.customDomain as string)?.toLowerCase()?.replace(/^www\./, "")?.trim();
+    if (customDomain === normalized) return { id: t.id, slug: t.slug };
+  }
+  return null;
+}
+
 /** Public module config: keyed by module slug, value is { slug: URL segment, showInNav } */
 export type PublicModulesConfig = Record<
   string,

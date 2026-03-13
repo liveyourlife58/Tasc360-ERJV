@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getEntityTicketDetails, updateOrderLineCheckIn } from "@/app/dashboard/actions";
+import { getEntityTicketDetails, updateOrderLineCheckIn, refundOrder } from "@/app/dashboard/actions";
 import { formatDate } from "@/lib/format";
 
 function formatAmount(cents: number): string {
@@ -19,23 +19,26 @@ type OrderLineRow = {
   amountCents: number;
   lineType: string;
   checkedInQuantity: number;
-  order: { purchaserName: string; purchaserEmail: string; createdAt: Date };
+  order: { id: string; status: string; purchaserName: string; purchaserEmail: string; createdAt: Date };
 };
 
 export function TicketSoldCell({
   entityId,
   entityTitle,
   ticketsSold,
+  allowRefund = true,
 }: {
   entityId: string;
   entityTitle: string;
   ticketsSold: number;
+  allowRefund?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [orderLines, setOrderLines] = useState<OrderLineRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [refundingOrderId, setRefundingOrderId] = useState<string | null>(null);
 
   async function openModal() {
     if (ticketsSold <= 0) return;
@@ -79,6 +82,31 @@ export function TicketSoldCell({
     } finally {
       setUpdatingId(null);
     }
+  }
+
+  async function handleRefund(orderId: string) {
+    if (!confirm("Refund this order? This cannot be undone.")) return;
+    setRefundingOrderId(orderId);
+    setError(null);
+    try {
+      const result = await refundOrder(orderId);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setOrderLines((prev) =>
+        prev ? prev.map((l) => (l.order.id === orderId ? { ...l, order: { ...l.order, status: "refunded" } } : l)) : null
+      ) ?? null;
+    } finally {
+      setRefundingOrderId(null);
+    }
+  }
+
+  const seenOrderIds = new Set<string>();
+  function isFirstLineOfOrder(orderId: string): boolean {
+    if (seenOrderIds.has(orderId)) return false;
+    seenOrderIds.add(orderId);
+    return true;
   }
 
   if (ticketsSold <= 0) return null;
@@ -176,6 +204,7 @@ export function TicketSoldCell({
                       <th style={{ textAlign: "right", padding: "0.5rem 0.75rem", borderBottom: "1px solid #e2e8f0", fontWeight: 600, fontSize: "0.8125rem" }}>Amount</th>
                       <th style={{ textAlign: "left", padding: "0.5rem 0.75rem", borderBottom: "1px solid #e2e8f0", fontWeight: 600, fontSize: "0.8125rem" }}>Type</th>
                       <th style={{ textAlign: "left", padding: "0.5rem 0.75rem", borderBottom: "1px solid #e2e8f0", fontWeight: 600, fontSize: "0.8125rem" }}>Date</th>
+                      <th style={{ textAlign: "left", padding: "0.5rem 0.75rem", borderBottom: "1px solid #e2e8f0", fontWeight: 600, fontSize: "0.8125rem" }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -215,6 +244,21 @@ export function TicketSoldCell({
                         <td style={{ padding: "0.5rem 0.75rem", borderBottom: "1px solid #f1f5f9", fontSize: "0.875rem", textAlign: "right" }}>{formatAmount(line.amountCents * line.quantity)}</td>
                         <td style={{ padding: "0.5rem 0.75rem", borderBottom: "1px solid #f1f5f9", fontSize: "0.875rem" }}>{line.lineType === "donation" ? "Donation" : "Payment"}</td>
                         <td style={{ padding: "0.5rem 0.75rem", borderBottom: "1px solid #f1f5f9", fontSize: "0.875rem", color: "#64748b" }}>{formatDate(line.order.createdAt)}</td>
+                        <td style={{ padding: "0.5rem 0.75rem", borderBottom: "1px solid #f1f5f9", fontSize: "0.875rem" }}>
+                          {line.order.status === "refunded" ? (
+                            <span style={{ color: "#64748b" }}>Refunded</span>
+                          ) : allowRefund && isFirstLineOfOrder(line.order.id) ? (
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              style={{ fontSize: "0.8125rem", padding: "0.25rem 0.5rem" }}
+                              disabled={refundingOrderId === line.order.id}
+                              onClick={() => handleRefund(line.order.id)}
+                            >
+                              {refundingOrderId === line.order.id ? "Refunding…" : "Refund"}
+                            </button>
+                          ) : null}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

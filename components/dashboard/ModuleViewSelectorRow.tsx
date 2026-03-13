@@ -4,7 +4,15 @@ import { useState } from "react";
 import { ViewSelector } from "@/components/dashboard/ViewSelector";
 import { CreateViewAiForm } from "@/components/dashboard/CreateViewAiForm";
 
-type ViewItem = { id: string; name: string; columns: string[] };
+type ViewItem = {
+  id: string;
+  name: string;
+  columns: string[];
+  viewType?: string;
+  settings?: { boardColumnField?: string; dateField?: string } | null;
+  filter?: unknown[];
+  sort?: unknown[];
+};
 type CreateViewCtx = {
   tenantId: string;
   moduleId: string;
@@ -17,7 +25,11 @@ export function ModuleViewSelectorRow({
   moduleSlug,
   views,
   currentViewId,
+  defaultViewId,
+  setDefaultViewAction,
   fieldSlugs,
+  selectFieldSlugs,
+  dateFieldSlugs,
   updateViewAction,
   deleteViewAction,
   createViewCtx,
@@ -25,7 +37,11 @@ export function ModuleViewSelectorRow({
   moduleSlug: string;
   views: ViewItem[];
   currentViewId: string | null;
+  defaultViewId?: string | null;
+  setDefaultViewAction?: (moduleSlug: string, viewId: string | null) => Promise<{ error?: string }>;
   fieldSlugs: string[];
+  selectFieldSlugs?: string[];
+  dateFieldSlugs?: string[];
   updateViewAction: (viewId: string, moduleSlug: string, prev: unknown, formData: FormData) => Promise<unknown>;
   deleteViewAction: (viewId: string, moduleSlug: string, prev: unknown, formData: FormData) => Promise<unknown>;
   createViewCtx: CreateViewCtx;
@@ -38,7 +54,11 @@ export function ModuleViewSelectorRow({
         moduleSlug={moduleSlug}
         views={views}
         currentViewId={currentViewId}
+        defaultViewId={defaultViewId}
+        setDefaultViewAction={setDefaultViewAction}
         fieldSlugs={fieldSlugs}
+        selectFieldSlugs={selectFieldSlugs}
+        dateFieldSlugs={dateFieldSlugs}
         updateViewAction={updateViewAction}
         deleteViewAction={deleteViewAction}
         editViewsOpen={editViewsOpen}

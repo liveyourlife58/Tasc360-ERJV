@@ -11,7 +11,10 @@ import {
   getEntitySuggestedDonationCents,
 } from "@/lib/module-settings";
 import { AddToCartButton } from "@/components/site/AddToCartButton";
-import { formatDateIfApplicable } from "@/lib/format";
+import { JoinWaitlistForm } from "@/components/site/JoinWaitlistForm";
+import { ShareButton } from "@/components/site/ShareButton";
+import { formatDateIfApplicable, getTenantLocale } from "@/lib/format";
+import { getEntityAvailabilityForSite } from "@/app/s/actions";
 
 export async function generateMetadata({
   params,
@@ -78,14 +81,16 @@ export default async function SiteModuleDetailPage({
   if (!entity) notFound();
 
   const data = (entity.data as Record<string, unknown>) ?? {};
+  const locale = getTenantLocale(tenant.settings);
+  const availability = await getEntityAvailabilityForSite(slug, entity.id);
   const effectiveType = getEffectivePaymentType(entity, module_);
   const priceCents = getEntityPriceCents(entity);
   const suggestedCents = getEntitySuggestedDonationCents(entity);
   const amountLabel =
     effectiveType === "payment" && priceCents != null && priceCents > 0
-      ? { label: "Price", value: formatAmount(priceCents) }
+      ? { label: "Price", value: formatAmount(priceCents, locale) }
       : effectiveType === "donation" && suggestedCents != null && suggestedCents > 0
-        ? { label: "Suggested donation", value: formatAmount(suggestedCents) }
+        ? { label: "Suggested donation", value: formatAmount(suggestedCents, locale) }
         : null;
 
   const h = await headers();
@@ -101,6 +106,8 @@ export default async function SiteModuleDetailPage({
       : dateVal != null && typeof (dateVal as { toISOString?: () => string }).toISOString === "function"
         ? (dateVal as Date).toISOString()
         : undefined;
+  const isProduct =
+    effectiveType === "payment" && priceCents != null && priceCents > 0;
   const jsonLd =
     module_.slug === "events" && dateStr
       ? {
@@ -111,15 +118,44 @@ export default async function SiteModuleDetailPage({
           ...(typeof data.participant_count === "number" && { maximumAttendeeCapacity: data.participant_count }),
           ...(canonical.startsWith("http") && { url: canonical }),
         }
-      : {
-          "@context": "https://schema.org",
-          "@type": "Thing",
-          name: title,
-          ...(canonical.startsWith("http") && { url: canonical }),
-        };
+      : isProduct
+        ? {
+            "@context": "https://schema.org",
+            "@type": "Product",
+            name: title,
+            ...(canonical.startsWith("http") && { url: canonical }),
+            offers: {
+              "@type": "Offer",
+              price: (priceCents ?? 0) / 100,
+              priceCurrency: "USD",
+            },
+          }
+        : {
+            "@context": "https://schema.org",
+            "@type": "Thing",
+            name: title,
+            ...(canonical.startsWith("http") && { url: canonical }),
+          };
+
+  const listPath = `/s/${slug}/${segment}`;
+  const listCanonical = getCanonicalUrl(listPath, meta.canonicalBaseUrl, h);
+  const homeCanonical = getCanonicalUrl(`/s/${slug}`, meta.canonicalBaseUrl, h);
+  const breadcrumbListLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: homeCanonical },
+      { "@type": "ListItem", position: 2, name: module_.name, item: listCanonical },
+      { "@type": "ListItem", position: 3, name: title, item: canonical },
+    ],
+  };
 
   return (
     <div className="site-page site-module-detail">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbListLd) }}
+      />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -146,13 +182,18 @@ export default async function SiteModuleDetailPage({
           {module_.fields.map((f) => (
             <div key={f.id} className="site-detail-row">
               <dt>{f.name}</dt>
-              <dd>{formatDetailValue(data[f.slug], f.fieldType)}</dd>
+              <dd>{formatDetailValue(data[f.slug], f.fieldType, locale)}</dd>
             </div>
           ))}
         </dl>
       </section>
       <div className="site-detail-actions">
-        {amountLabel && (
+        {amountLabel && availability?.available === 0 && availability?.capacity !== null ? (
+          <div className="site-sold-out">
+            <p className="site-sold-out-text">Sold out</p>
+            <JoinWaitlistForm tenantSlug={slug} entityId={entity.id} />
+          </div>
+        ) : amountLabel ? (
           <AddToCartButton
             tenantSlug={slug}
             segment={segment}
@@ -162,18 +203,27 @@ export default async function SiteModuleDetailPage({
             amountCents={priceCents ?? suggestedCents ?? 0}
             type={effectiveType === "payment" ? "payment" : "donation"}
             label={effectiveType === "donation" ? "Add to cart" : "Add ticket"}
+            maxQuantity={availability?.available ?? undefined}
           />
+        ) : null}
+        {availability?.capacity != null && availability.available != null && availability.available > 0 && (
+          <p className="site-spots-left" style={{ fontSize: "0.875rem", color: "#64748b", marginTop: "0.25rem" }}>
+            {availability.available} spot{availability.available !== 1 ? "s" : ""} left
+          </p>
         )}
-        <Link href={`/s/${slug}/${segment}`} className="btn btn-secondary site-detail-back">
-          ← Back to {module_.name}
-        </Link>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
+          <ShareButton url={canonical} title={title} />
+          <Link href={`/s/${slug}/${segment}`} className="btn btn-secondary site-detail-back">
+            ← Back to {module_.name}
+          </Link>
+        </div>
       </div>
     </div>
   );
 }
 
-function formatAmount(cents: number): string {
-  return new Intl.NumberFormat("en-US", {
+function formatAmount(cents: number, locale?: string): string {
+  return new Intl.NumberFormat(locale || "en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
@@ -181,11 +231,11 @@ function formatAmount(cents: number): string {
   }).format(cents / 100);
 }
 
-function formatDetailValue(value: unknown, fieldType: string): React.ReactNode {
+function formatDetailValue(value: unknown, fieldType: string, locale?: string): React.ReactNode {
   if (value == null) return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  const dateStr = formatDateIfApplicable(value, fieldType);
-  if (dateStr !== null) return dateStr;
+  const dateStr = formatDateIfApplicable(value, fieldType, locale);
+  if (dateStr !== null && dateStr !== "") return dateStr;
   if (fieldType === "json" && typeof value === "object")
     return <pre className="site-json">{JSON.stringify(value, null, 2)}</pre>;
   if (fieldType === "file" && typeof value === "string" && value.trim() !== "") {

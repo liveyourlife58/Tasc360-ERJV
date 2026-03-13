@@ -50,6 +50,10 @@ export function CheckoutPage({ tenantSlug }: { tenantSlug: string }) {
         setSubmitting(false);
         return;
       }
+      if ("redirectUrl" in result && result.redirectUrl) {
+        window.location.href = result.redirectUrl;
+        return;
+      }
       clearCart();
       router.push(`/s/${tenantSlug}/cart/thank-you`);
     } catch {
@@ -62,7 +66,7 @@ export function CheckoutPage({ tenantSlug }: { tenantSlug: string }) {
     <div className="site-page site-checkout">
       <h1>Checkout</h1>
       <p style={{ color: "#64748b", marginBottom: "1rem" }}>
-        Prototype: no payment required. In the future, required prices will use Stripe; suggested donations will be optional.
+        Pay securely with Stripe when the site has payments enabled. Free or donation-only orders complete without payment.
       </p>
       <form onSubmit={handleSubmit}>
         <div className="site-checkout-summary" style={{ marginBottom: "1.5rem" }}>

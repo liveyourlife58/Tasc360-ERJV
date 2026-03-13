@@ -184,7 +184,7 @@ function formatCell(value: unknown): React.ReactNode {
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (Array.isArray(value)) return value.length ? `${value.length} items` : "—";
   if (typeof value === "object" && "toISOString" in (value as object)) {
-    return formatDate(value);
+    return formatDate(value as Date);
   }
   return String(value);
 }

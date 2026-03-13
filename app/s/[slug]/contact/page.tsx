@@ -3,6 +3,8 @@ import { headers } from "next/headers";
 import type { Metadata } from "next";
 import { getTenantBySlug } from "@/lib/tenant";
 import { getSiteMeta, getCanonicalUrl } from "@/lib/site-seo";
+import { submitContactForm } from "@/app/s/actions";
+import { ContactForm } from "@/components/site/ContactForm";
 
 export async function generateMetadata({
   params,
@@ -108,6 +110,12 @@ export default async function SiteContactPage({
           )}
           {!hasStructured && !hasExtra && !hasLegacy && (
             <p>Get in touch. Add contact details from your dashboard settings.</p>
+          )}
+          {email && (
+            <section className="site-contact-form-section" aria-labelledby="contact-form-heading">
+              <h2 id="contact-form-heading" className="site-contact-form-heading">Send a message</h2>
+              <ContactForm action={submitContactForm.bind(null, slug)} />
+            </section>
           )}
         </>
       )}

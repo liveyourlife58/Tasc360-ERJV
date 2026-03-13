@@ -1,0 +1,354 @@
+# Minimal OpenAPI 3.0 spec for the Tenant REST API.
+# Base URL: your app origin (e.g. https://app.example.com)
+# See docs/TENANT_API.md for full documentation.
+
+openapi: 3.0.3
+info:
+  title: Tenant API
+  description: REST API for tenant data (modules, entities, related). Use X-API-Key for auth.
+  version: "1.0"
+
+servers:
+  - url: /api/v1
+    description: API v1
+
+security:
+  - ApiKey: []
+
+paths:
+  /tenants/{tenantIdOrSlug}/modules:
+    get:
+      summary: List modules
+      parameters:
+        - name: tenantIdOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+          description: Tenant UUID or slug
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-API-Version: { schema: { type: string, example: "1" }, description: API version }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  modules:
+                    type: array
+                    items: { $ref: "#/components/schemas/Module" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /tenants/{tenantIdOrSlug}/modules/{moduleSlug}/entities:
+    get:
+      summary: List entities
+      parameters:
+        - name: tenantIdOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: moduleSlug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 100 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+          description: Entity ID for next page (alias after)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entities:
+                    type: array
+                    items: { $ref: "#/components/schemas/Entity" }
+                  nextCursor: { type: string, nullable: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    post:
+      summary: Create entity
+      parameters:
+        - name: tenantIdOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: moduleSlug
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              description: Keys = field slugs; values = field values
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Entity" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { description: Request body too large (max 1MB) }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    patch:
+      summary: Bulk update entities
+      parameters:
+        - name: tenantIdOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: moduleSlug
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, data]
+              properties:
+                ids: { type: array, items: { type: string } }
+                data: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { description: Request body too large (max 1MB) }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /tenants/{tenantIdOrSlug}/modules/{moduleSlug}/entities/{entityId}:
+    get:
+      summary: Get one entity
+      parameters:
+        - name: tenantIdOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: moduleSlug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: entityId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Entity" }
+                  - type: object
+                    properties:
+                      updatedAt: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    patch:
+      summary: Update one entity
+      parameters:
+        - name: tenantIdOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: moduleSlug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: entityId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  data: { type: object }
+                  updatedAt: { type: string, format: date-time }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { description: Request body too large (max 1MB) }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    delete:
+      summary: Delete one entity (soft delete)
+      parameters:
+        - name: tenantIdOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: moduleSlug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: entityId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: boolean }
+        "400": { description: e.g. tickets sold }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /tenants/{tenantIdOrSlug}/entities/{entityId}/related:
+    get:
+      summary: Get related entities
+      parameters:
+        - name: tenantIdOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: entityId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: type
+          in: query
+          schema: { type: string }
+          description: Filter by relationType
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 100 }
+        - name: after
+          in: query
+          schema: { type: string }
+          description: Relationship ID for next page
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  related:
+                    type: array
+                    items: { $ref: "#/components/schemas/RelatedItem" }
+                  nextCursor: { type: string, nullable: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+# All /api/v1 responses include X-API-Version: 1 (see TENANT_API.md).
+components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Tenant API key (Dashboard → Settings → API access)
+
+  schemas:
+    Module:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: string, nullable: true }
+    Entity:
+      type: object
+      properties:
+        id: { type: string }
+        data: { type: object }
+        createdAt: { type: string, format: date-time }
+    RelatedItem:
+      type: object
+      properties:
+        id: { type: string }
+        relationshipId: { type: string }
+        moduleSlug: { type: string }
+        moduleName: { type: string }
+        relationType: { type: string }
+        direction: { type: string, enum: [out, in] }
+        data: { type: object }
+
+  responses:
+    BadRequest:
+      description: Validation or invalid JSON
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+              code: { type: string, example: VALIDATION_ERROR }
+    Unauthorized:
+      description: Invalid or missing X-API-Key
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+              code: { type: string, example: UNAUTHORIZED }
+    NotFound:
+      description: Tenant, module, or entity not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+              code: { type: string, example: NOT_FOUND }
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+              code: { type: string, example: RATE_LIMITED }
+      headers:
+        X-RateLimit-Limit: { schema: { type: integer } }
+        X-RateLimit-Remaining: { schema: { type: integer } }
+        X-RateLimit-Reset: { schema: { type: integer } }

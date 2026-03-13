@@ -8,6 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test:e2e": "playwright test",
+    "test:e2e:ci": "playwright test --project=smoke",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
@@ -19,6 +21,7 @@
     "seed": "node prisma/seed.js"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
@@ -34,6 +37,10 @@
     "openai": "^6.27.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "sharp": "^0.34.5"
+    "react-markdown": "^10.1.0",
+    "rehype-slug": "^6.0.0",
+    "resend": "^6.9.3",
+    "sharp": "^0.34.5",
+    "stripe": "^20.4.1"
   }
 }

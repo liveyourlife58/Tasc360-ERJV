@@ -224,6 +224,7 @@ export function EntityForm({
   entityPaymentType = null,
   priceCents = null,
   suggestedDonationAmountCents = null,
+  capacity = null,
   action,
 }: {
   moduleSlug: string;
@@ -239,6 +240,8 @@ export function EntityForm({
   priceCents?: number | null;
   /** Suggested donation amount in cents. Shown when module has payment/donation. */
   suggestedDonationAmountCents?: number | null;
+  /** Max capacity (e.g. tickets). Stored in entity.metadata.capacity. Shown when module has payment type. */
+  capacity?: number | null;
   action: ActionResult;
 }) {
   const [state, formAction] = useActionState(action, null);
@@ -251,6 +254,7 @@ export function EntityForm({
     suggestedDonationAmountCents != null && suggestedDonationAmountCents > 0
       ? (suggestedDonationAmountCents / 100).toFixed(2)
       : "";
+  const capacityDefault = capacity != null && capacity > 0 ? String(capacity) : "";
 
   return (
     <form action={formAction} style={{ maxWidth: 480 }}>
@@ -313,6 +317,19 @@ export function EntityForm({
                 inputMode="decimal"
                 placeholder="e.g. 50.00"
                 defaultValue={suggestedDefault}
+              />
+            </div>
+          )}
+          {(effectiveType === "payment" || effectiveType === "donation") && (
+            <div className="form-group">
+              <label htmlFor="_capacity">Capacity (max tickets / spots)</label>
+              <input
+                type="number"
+                id="_capacity"
+                name="_capacity"
+                min={0}
+                placeholder="Leave blank for unlimited"
+                defaultValue={capacityDefault}
               />
             </div>
           )}

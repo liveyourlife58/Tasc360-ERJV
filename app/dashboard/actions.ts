@@ -7,12 +7,107 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, PERMISSIONS } from "@/lib/permissions";
 import { filterEntitiesByConditions } from "@/lib/view-utils";
+import { APP_CONFIG } from "@/lib/app-config";
 
 async function requireDashboardPermission(permission: string) {
   const h = await headers();
   const userId = h.get("x-user-id");
   if (!userId) throw new Error("Unauthorized");
   await requirePermission(userId, permission);
+}
+
+/** Send a test webhook event; used by Settings → Webhooks "Send test event". */
+export async function sendTestWebhook(): Promise<{ success: boolean; statusCode?: number; error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { success: false, error: "Unauthorized" };
+  const { fireWebhookTest } = await import("@/lib/webhooks");
+  return fireWebhookTest(tenantId);
+}
+
+/** Form action wrapper for Send test event button. */
+export async function sendTestWebhookFormAction(_prev: unknown, _formData: FormData): Promise<{ success: boolean; statusCode?: number; error?: string }> {
+  return sendTestWebhook();
+}
+
+/** Sync File rows for entity file-type fields: one File per field with a URL; store fieldSlug in metadata. */
+async function syncFilesForEntity(
+  tenantId: string,
+  entityId: string,
+  data: Record<string, unknown>,
+  fileFieldSlugs: string[]
+) {
+  if (fileFieldSlugs.length === 0) return;
+  const existing = await prisma.file.findMany({
+    where: { tenantId, entityId },
+    select: { id: true, metadata: true },
+  });
+  const byField = new Map<string, string>();
+  for (const f of existing) {
+    const meta = f.metadata as Record<string, unknown> | null;
+    if (meta && typeof meta.fieldSlug === "string") byField.set(meta.fieldSlug, f.id);
+  }
+  for (const slug of fileFieldSlugs) {
+    const url = data[slug];
+    const urlStr = typeof url === "string" ? url.trim() : "";
+    const existingId = byField.get(slug);
+    if (urlStr) {
+      const payload = {
+        tenantId,
+        entityId,
+        fileUrl: urlStr.slice(0, 1024),
+        metadata: { fieldSlug: slug } as object,
+      };
+      if (existingId) {
+        await prisma.file.update({
+          where: { id: existingId },
+          data: { fileUrl: payload.fileUrl },
+        });
+      } else {
+        await prisma.file.create({ data: payload });
+      }
+    } else if (existingId) {
+      await prisma.file.delete({ where: { id: existingId } });
+    }
+  }
+}
+
+/** Sync Relationship rows for an entity: relation and relation-multi fields → sourceId=entity, targetId from data. */
+async function syncRelationshipsForEntity(
+  tenantId: string,
+  sourceEntityId: string,
+  data: Record<string, unknown>,
+  fields: { slug: string; fieldType: string }[]
+) {
+  const relationSlugs = fields
+    .filter((f) => f.fieldType === "relation" || f.fieldType === "relation-multi")
+    .map((f) => f.slug);
+  if (relationSlugs.length === 0) return;
+
+  await prisma.relationship.deleteMany({
+    where: { tenantId, sourceId: sourceEntityId, relationType: { in: relationSlugs } },
+  });
+
+  const toCreate: { relationType: string; targetId: string }[] = [];
+  for (const slug of relationSlugs) {
+    const v = data[slug];
+    if (Array.isArray(v)) {
+      for (const id of v) if (typeof id === "string" && id.trim()) toCreate.push({ relationType: slug, targetId: id.trim() });
+    } else if (typeof v === "string" && v.trim()) {
+      toCreate.push({ relationType: slug, targetId: v.trim() });
+    }
+  }
+  if (toCreate.length === 0) return;
+
+  await prisma.relationship.createMany({
+    data: toCreate.map(({ relationType, targetId }) => ({
+      tenantId,
+      sourceId: sourceEntityId,
+      targetId,
+      relationType,
+    })),
+    skipDuplicates: true,
+  });
 }
 
 export async function createEntity(
@@ -67,8 +162,12 @@ export async function createEntity(
     priceCents: priceCents ?? null,
     suggestedDonationAmountCents: suggestedDonationAmountCents ?? null,
   });
+  const capacityRaw = (formData.get("_capacity") as string)?.trim();
+  if (capacityRaw !== "" && capacityRaw !== undefined) {
+    metadata.capacity = Math.max(0, parseInt(capacityRaw, 10) || 0);
+  }
 
-  await prisma.entity.create({
+  const created = await prisma.entity.create({
     data: {
       tenantId: ctx.tenantId,
       moduleId: ctx.moduleId,
@@ -77,11 +176,29 @@ export async function createEntity(
       searchText,
       createdBy: ctx.createdBy,
     },
+    select: { id: true },
   });
+  await syncRelationshipsForEntity(ctx.tenantId, created.id, data, moduleRow?.fields ?? []);
+  const fileFieldSlugs = (moduleRow?.fields ?? []).filter((f) => f.fieldType === "file").map((f) => f.slug);
+  await syncFilesForEntity(ctx.tenantId, created.id, data, fileFieldSlugs);
+
+  await prisma.event.create({
+    data: {
+      tenantId: ctx.tenantId,
+      entityId: created.id,
+      eventType: "entity_created",
+      data: { moduleSlug: moduleRow?.slug } as object,
+      createdBy: ctx.createdBy,
+    },
+  });
+  const { fireWebhook } = await import("@/lib/webhooks");
+  fireWebhook(ctx.tenantId, "entity.created", { entityId: created.id, moduleId: ctx.moduleId, data: data as object });
+  const { upsertEmbeddingForEntity } = await import("@/lib/embeddings");
+  upsertEmbeddingForEntity(ctx.tenantId, created.id, searchText ?? "").catch(() => {});
 
   const slug = moduleRow?.slug ?? "";
   revalidatePath(`/dashboard/m/${slug}`);
-  redirect(`/dashboard/m/${slug}`);
+  redirect(`/dashboard/m/${slug}?success=created`);
 }
 
 export async function updateEntity(
@@ -146,6 +263,12 @@ export async function updateEntity(
     priceCents: priceCents ?? null,
     suggestedDonationAmountCents: suggestedDonationAmountCents ?? null,
   });
+  const capacityRaw = (formData.get("_capacity") as string)?.trim();
+  if (capacityRaw === "" || capacityRaw === undefined) {
+    delete metadata.capacity;
+  } else {
+    metadata.capacity = Math.max(0, parseInt(capacityRaw, 10) || 0);
+  }
 
   const entity = await prisma.entity.update({
     where: { id: ctx.entityId },
@@ -156,11 +279,170 @@ export async function updateEntity(
     },
     include: { module: { select: { slug: true } } },
   });
+  await syncRelationshipsForEntity(tenantId, entity.id, data, existing.module?.fields ?? []);
+  const fileFieldSlugs = (existing.module?.fields ?? []).filter((f) => f.fieldType === "file").map((f) => f.slug);
+  await syncFilesForEntity(tenantId, entity.id, data, fileFieldSlugs);
+
+  const userId = (await headers()).get("x-user-id");
+  await prisma.event.create({
+    data: {
+      tenantId,
+      entityId: entity.id,
+      eventType: "entity_updated",
+      data: { moduleSlug: entity.module?.slug } as object,
+      createdBy: userId,
+    },
+  });
+  const { fireWebhook } = await import("@/lib/webhooks");
+  fireWebhook(tenantId, "entity.updated", { entityId: entity.id, moduleId: entity.moduleId, data: data as object });
+  const { upsertEmbeddingForEntity } = await import("@/lib/embeddings");
+  upsertEmbeddingForEntity(tenantId, entity.id, searchText != null ? searchText.slice(0, 10000) : "").catch(() => {});
 
   const slug = entity.module?.slug ?? "";
   revalidatePath(`/dashboard/m/${slug}`);
   revalidatePath(`/dashboard/m/${slug}/${entity.id}`);
-  redirect(`/dashboard/m/${slug}`);
+  redirect(`/dashboard/m/${slug}?success=saved`);
+}
+
+/** Clone an entity: create a new entity with the same module, data, and metadata. */
+export async function duplicateEntity(entityId: string, moduleSlug: string): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.entitiesWrite);
+  const tenantId = (await headers()).get("x-tenant-id");
+  const userId = (await headers()).get("x-user-id");
+  if (!tenantId || !userId) return { error: "Unauthorized" };
+  const existing = await prisma.entity.findFirst({
+    where: { id: entityId, tenantId, deletedAt: null },
+    include: { module: { include: { fields: { orderBy: { sortOrder: "asc" } } } } },
+  });
+  if (!existing?.module || existing.module.slug !== moduleSlug) return { error: "Entity not found." };
+  const data = { ...((existing.data as Record<string, unknown>) ?? {}) };
+  const metadata = (existing.metadata as Record<string, unknown> | null) ?? {};
+  const searchText = existing.searchText;
+  const created = await prisma.entity.create({
+    data: {
+      tenantId,
+      moduleId: existing.moduleId,
+      data: data as object,
+      metadata: Object.keys(metadata).length > 0 ? (metadata as object) : undefined,
+      searchText,
+      createdBy: userId,
+    },
+    select: { id: true },
+  });
+  await syncRelationshipsForEntity(tenantId, created.id, data, existing.module.fields ?? []);
+  await prisma.event.create({
+    data: {
+      tenantId,
+      entityId: created.id,
+      eventType: "entity_created",
+      data: { moduleSlug: existing.module.slug, clonedFrom: entityId } as object,
+      createdBy: userId,
+    },
+  });
+  const { fireWebhook } = await import("@/lib/webhooks");
+  fireWebhook(tenantId, "entity.created", { entityId: created.id, moduleId: existing.moduleId, data });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/${created.id}`);
+  redirect(`/dashboard/m/${moduleSlug}/${created.id}?success=created`);
+}
+
+/** Form action for Clone entity button. Redirects to new entity on success. */
+export async function duplicateEntityFormAction(formData: FormData): Promise<void> {
+  const entityId = (formData.get("entityId") as string)?.trim();
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  if (!entityId || !moduleSlug) throw new Error("Missing entity or module.");
+  const result = await duplicateEntity(entityId, moduleSlug);
+  if (result?.error) throw new Error(result.error);
+}
+
+/** Update a single field on an entity (e.g. board column drag). */
+export async function updateEntitySingleField(
+  entityId: string,
+  moduleSlug: string,
+  fieldSlug: string,
+  value: string
+): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.entitiesWrite);
+  const tenantId = (await headers()).get("x-tenant-id");
+  const userId = (await headers()).get("x-user-id");
+  if (!tenantId || !userId) return { error: "Unauthorized" };
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug, isActive: true },
+    include: { fields: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!module_) return { error: "Module not found." };
+  const field = module_.fields.find((f) => f.slug === fieldSlug);
+  if (!field) return { error: "Field not found." };
+  const entity = await prisma.entity.findFirst({
+    where: { id: entityId, tenantId, moduleId: module_.id, deletedAt: null },
+    select: { id: true, data: true },
+  });
+  if (!entity) return { error: "Entity not found." };
+  const data = { ...((entity.data as Record<string, unknown>) ?? {}), [fieldSlug]: value || null };
+  const searchText = Object.values(data)
+    .filter((v): v is string => typeof v === "string" && v.length > 0)
+    .join(" ")
+    .slice(0, 10000) || null;
+  await prisma.entity.update({
+    where: { id: entityId },
+    data: { data: data as object, searchText },
+  });
+  await syncRelationshipsForEntity(tenantId, entityId, data, module_.fields);
+  await prisma.event.create({
+    data: {
+      tenantId,
+      entityId,
+      eventType: "entity_updated",
+      data: { moduleSlug } as object,
+      createdBy: userId,
+    },
+  });
+  const { fireWebhook } = await import("@/lib/webhooks");
+  fireWebhook(tenantId, "entity.updated", { entityId, moduleId: module_.id, data });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/${entityId}`);
+  return {};
+}
+
+/** Return related entities (where this entity is source or target in Relationship table). */
+export async function getRelatedEntities(entityId: string) {
+  await requireDashboardPermission(PERMISSIONS.entitiesRead);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized", related: null };
+
+  const [fromSource, fromTarget] = await Promise.all([
+    prisma.relationship.findMany({
+      where: { tenantId, sourceId: entityId },
+      include: { target: { include: { module: { select: { slug: true, name: true } } } } },
+    }),
+    prisma.relationship.findMany({
+      where: { tenantId, targetId: entityId },
+      include: { source: { include: { module: { select: { slug: true, name: true } } } } },
+    }),
+  ]);
+
+  const related: { id: string; moduleSlug: string; moduleName: string; relationType: string; direction: "out" | "in"; data: Record<string, unknown> }[] = [];
+  fromSource.forEach((r) => {
+    related.push({
+      id: r.target.id,
+      moduleSlug: r.target.module?.slug ?? "",
+      moduleName: r.target.module?.name ?? "",
+      relationType: r.relationType,
+      direction: "out",
+      data: (r.target.data as Record<string, unknown>) ?? {},
+    });
+  });
+  fromTarget.forEach((r) => {
+    related.push({
+      id: r.source.id,
+      moduleSlug: r.source.module?.slug ?? "",
+      moduleName: r.source.module?.name ?? "",
+      relationType: r.relationType,
+      direction: "in",
+      data: (r.source.data as Record<string, unknown>) ?? {},
+    });
+  });
+  return { error: null, related };
 }
 
 /** Return entity data for given IDs in a relation target module (for relation-multi modal). */
@@ -205,7 +487,7 @@ export async function getEntityTicketDetails(entityId: string) {
     where: { entityId: entity.id },
     include: {
       order: {
-        select: { purchaserName: true, purchaserEmail: true, createdAt: true },
+        select: { id: true, status: true, purchaserName: true, purchaserEmail: true, createdAt: true },
       },
     },
     orderBy: { order: { createdAt: "desc" } },
@@ -245,6 +527,73 @@ export async function updateOrderLineCheckIn(
     data: { checkedInQuantity: value },
   });
   return { error: null };
+}
+
+/** Refund an order (Stripe Connect). Updates order and payment status to refunded. */
+export async function refundOrder(orderId: string): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.entitiesWrite);
+  const tenantId = (await headers()).get("x-tenant-id");
+  const userId = (await headers()).get("x-user-id");
+  if (!tenantId) return { error: "Unauthorized" };
+
+  let tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { settings: true },
+  });
+  if (!tenant) return { error: "Unauthorized" };
+  if (!(await import("@/lib/feature-flags")).isFeatureEnabled(tenant.settings, "refunds")) {
+    return { error: "Refunds are disabled for this workspace." };
+  }
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, tenantId },
+    select: { id: true, status: true },
+  });
+  if (!order) return { error: "Order not found." };
+  if (order.status !== "completed") return { error: "Only completed orders can be refunded." };
+
+  const { getTenantConnectConfig } = await import("@/lib/stripe-connect");
+  const connectConfig = getTenantConnectConfig(tenant);
+  if (!connectConfig?.onboardingComplete) return { error: "Stripe Connect is not set up for this workspace." };
+
+  const payment = await prisma.payment.findFirst({
+    where: {
+      tenantId,
+      status: "succeeded",
+      metadata: { path: ["orderId"], equals: orderId },
+    },
+    select: { id: true, externalId: true },
+  });
+  if (!payment?.externalId || !payment.externalId.startsWith("pi_")) {
+    return { error: "No refundable payment found for this order (or order was free)." };
+  }
+
+  const Stripe = (await import("stripe")).default;
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return { error: "Stripe is not configured." };
+  const stripeClient = new Stripe(key);
+  try {
+    await stripeClient.refunds.create(
+      { payment_intent: payment.externalId },
+      { stripeAccount: connectConfig.accountId }
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { error: `Stripe refund failed: ${message}` };
+  }
+
+  await prisma.payment.updateMany({
+    where: { tenantId, metadata: { path: ["orderId"], equals: orderId } },
+    data: { status: "refunded" },
+  });
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { status: "refunded" },
+  });
+  const { logAuditEvent } = await import("@/lib/audit");
+  await logAuditEvent(tenantId, "order_refunded", { orderId }, userId ?? null);
+  revalidatePath("/dashboard");
+  return {};
 }
 
 /** Find one entity by module and a text ref (name/search). includeDeleted: consider all; deletedOnly: only soft-deleted. */
@@ -297,12 +646,192 @@ export async function deleteEntity(
     };
   }
 
-  await prisma.entity.update({
+  const entity = await prisma.entity.update({
     where: { id: entityId },
     data: { deletedAt: new Date() },
+    include: { module: { select: { slug: true } } },
+  });
+  const userId = (await headers()).get("x-user-id");
+  await prisma.event.create({
+    data: {
+      tenantId,
+      entityId: entity.id,
+      eventType: "entity_deleted",
+      data: { moduleSlug: entity.module?.slug } as object,
+      createdBy: userId,
+    },
+  });
+  const { fireWebhook } = await import("@/lib/webhooks");
+  fireWebhook(tenantId, "entity.deleted", { entityId: entity.id });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  redirect(`/dashboard/m/${moduleSlug}?success=deleted`);
+}
+
+/** Restore a soft-deleted entity (set deletedAt = null). */
+export async function restoreEntity(entityId: string, moduleSlug: string): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.entitiesWrite);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug, isActive: true },
+    select: { id: true },
+  });
+  if (!module_) return { error: "Module not found." };
+  const entity = await prisma.entity.findFirst({
+    where: { id: entityId, tenantId, moduleId: module_.id, deletedAt: { not: null } },
+    select: { id: true },
+  });
+  if (!entity) return { error: "Entity not found or not deleted." };
+  await prisma.entity.update({
+    where: { id: entityId },
+    data: { deletedAt: null },
   });
   revalidatePath(`/dashboard/m/${moduleSlug}`);
   redirect(`/dashboard/m/${moduleSlug}`);
+}
+
+/** Ask AI: full-text search for relevant entities, then answer the question using that context (RAG). */
+export async function askDashboardAi(
+  question: string,
+  moduleSlug?: string | null
+): Promise<{ error?: string; answer?: string; citedRecords?: { entityId: string; moduleSlug: string; moduleName: string }[] }> {
+  await requireDashboardPermission(PERMISSIONS.entitiesRead);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const q = (question ?? "").trim();
+  if (!q) return { error: "Please enter a question." };
+
+  const { searchEntitiesHybrid } = await import("@/lib/search");
+  let moduleId: string | undefined;
+  if (moduleSlug) {
+    const mod = await prisma.module.findFirst({
+      where: { tenantId, slug: moduleSlug, isActive: true },
+      select: { id: true },
+    });
+    moduleId = mod?.id;
+  }
+  const results = await searchEntitiesHybrid(tenantId, q, { moduleId, limit: 15 });
+  const modules = await prisma.module.findMany({
+    where: { tenantId },
+    select: { id: true, name: true, slug: true },
+  });
+  const moduleById = new Map(modules.map((m) => [m.id, m]));
+
+  const contextParts: string[] = [];
+  const citedRecords: { entityId: string; moduleSlug: string; moduleName: string }[] = [];
+  for (const r of results) {
+    const mod = r.moduleId ? moduleById.get(r.moduleId) : null;
+    const label = mod ? mod.name : "Record";
+    const slug = mod?.slug ?? "";
+    citedRecords.push({ entityId: r.entityId, moduleSlug: slug, moduleName: label });
+    const text = (r.searchText ?? Object.values(r.data).filter((v) => typeof v === "string").join(" ")).slice(0, 500);
+    contextParts.push(`[${label} ${r.entityId}]\n${text}`);
+  }
+  const context = contextParts.length > 0 ? contextParts.join("\n\n") : "No relevant records found.";
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return { error: "AI is not configured (OPENAI_API_KEY)." };
+  const { OpenAI } = await import("openai");
+  const client = new OpenAI({ apiKey });
+  const sys = "You are an assistant for this workspace. Answer the user's question based only on the provided context (relevant records). If the context does not contain enough information, say so. Be concise.";
+  const res = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: sys },
+      { role: "user", content: `Context:\n${context}\n\nQuestion: ${q}` },
+    ],
+  });
+  const answer = res.choices[0]?.message?.content?.trim() ?? "I couldn't generate an answer.";
+  return { answer, citedRecords: citedRecords.length > 0 ? citedRecords : undefined };
+}
+
+/** List pending approvals for the tenant. */
+export async function getPendingApprovals() {
+  await requireDashboardPermission(PERMISSIONS.entitiesRead);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized", approvals: null };
+  const approvals = await prisma.approval.findMany({
+    where: { tenantId, status: "pending" },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    include: {
+      entity: { select: { id: true, data: true, module: { select: { slug: true, name: true } } } },
+      requestedByUser: { select: { id: true, name: true, email: true } },
+    },
+  });
+  return { error: null, approvals };
+}
+
+/** Request approval for an entity (creates pending Approval, optionally sends email). */
+export async function requestApproval(
+  entityId: string,
+  moduleSlug: string,
+  _prev: unknown,
+  formData: FormData
+): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.entitiesWrite);
+  const tenantId = (await headers()).get("x-tenant-id");
+  const userId = (await headers()).get("x-user-id");
+  if (!tenantId || !userId) return { error: "Unauthorized" };
+  const approvalType = (formData.get("approvalType") as string)?.trim();
+  if (!approvalType || approvalType.length > 100) return { error: "Approval type is required (e.g. Quote, PO)." };
+  const entity = await prisma.entity.findFirst({
+    where: { id: entityId, tenantId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!entity) return { error: "Entity not found." };
+  const existing = await prisma.approval.findFirst({
+    where: { tenantId, entityId, approvalType, status: "pending" },
+    select: { id: true },
+  });
+  if (existing) return { error: "This record already has a pending approval request for this type." };
+  await prisma.approval.create({
+    data: {
+      tenantId,
+      entityId,
+      approvalType,
+      requestedBy: userId,
+      status: "pending",
+    },
+  });
+  const { sendApprovalRequestedEmail } = await import("@/lib/email");
+  sendApprovalRequestedEmail(tenantId, { entityId, approvalType }).catch(() => {});
+  revalidatePath(`/dashboard/m/${moduleSlug}/${entityId}`);
+  revalidatePath("/dashboard/approvals");
+  return {};
+}
+
+/** Approve or reject an approval request. */
+export async function decideApproval(approvalId: string, status: "approved" | "rejected", comment?: string | null): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.entitiesWrite);
+  const tenantId = (await headers()).get("x-tenant-id");
+  const userId = (await headers()).get("x-user-id");
+  if (!tenantId || !userId) return { error: "Unauthorized" };
+  const approval = await prisma.approval.findFirst({
+    where: { id: approvalId, tenantId, status: "pending" },
+    select: { id: true },
+  });
+  if (!approval) return { error: "Approval not found or already decided." };
+  await prisma.approval.update({
+    where: { id: approvalId },
+    data: { status, decidedBy: userId, decidedAt: new Date(), comment: comment ?? null },
+  });
+  revalidatePath("/dashboard/approvals");
+  redirect("/dashboard/approvals");
+}
+
+/** Return recent events (audit) for an entity. */
+export async function getEntityEvents(entityId: string, limit = 20) {
+  await requireDashboardPermission(PERMISSIONS.entitiesRead);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized", events: null };
+  const events = await prisma.event.findMany({
+    where: { tenantId, entityId },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    select: { id: true, eventType: true, data: true, createdAt: true, createdBy: true },
+  });
+  return { error: null, events };
 }
 
 // -----------------------------------------------------------------------------
@@ -384,15 +913,264 @@ export async function updateView(
   if (!name) return { error: "View name is required." };
   const columnsRaw = (formData.get("columns") as string)?.trim();
   const columns = columnsRaw ? columnsRaw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  const viewTypeRaw = (formData.get("viewType") as string)?.trim();
+  const viewType = viewTypeRaw === "board" || viewTypeRaw === "calendar" ? viewTypeRaw : "list";
+  const boardColumnField = (formData.get("boardColumnField") as string)?.trim() || null;
+  const dateField = (formData.get("dateField") as string)?.trim() || null;
+  const settings: Record<string, unknown> = {};
+  if (viewType === "board" && boardColumnField) settings.boardColumnField = boardColumnField;
+  if (viewType === "calendar" && dateField) settings.dateField = dateField;
+
+  let filter: unknown = [];
+  const filterJson = (formData.get("filterJson") as string)?.trim();
+  if (filterJson) {
+    try {
+      const parsed = JSON.parse(filterJson) as unknown;
+      filter = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      filter = [];
+    }
+  }
+  let sort: unknown = [];
+  const sortJson = (formData.get("sortJson") as string)?.trim();
+  if (sortJson) {
+    try {
+      const parsed = JSON.parse(sortJson) as unknown;
+      sort = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      sort = [];
+    }
+  }
+
   await prisma.view.update({
     where: { id: viewId },
     data: {
       name,
+      viewType,
       columns: columns.length ? (columns as object) : [],
+      filter: (filter as object) ?? [],
+      sort: (sort as object) ?? [],
+      settings: Object.keys(settings).length > 0 ? (settings as object) : undefined,
     },
   });
   revalidatePath(`/dashboard/m/${moduleSlug}`);
   redirect(`/dashboard/m/${moduleSlug}?view=${viewId}`);
+}
+
+/** Set the default view for a module (opened when no view in URL). */
+export async function setModuleDefaultView(moduleSlug: string, viewId: string | null): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.viewsManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug, isActive: true },
+    select: { id: true, settings: true },
+  });
+  if (!module_) return { error: "Module not found." };
+  if (viewId) {
+    const view = await prisma.view.findFirst({
+      where: { id: viewId, tenantId, moduleId: module_.id },
+      select: { id: true },
+    });
+    if (!view) return { error: "View not found." };
+  }
+  const settings = (module_.settings as Record<string, unknown>) ?? {};
+  settings.defaultViewId = viewId ?? undefined;
+  if (!viewId) delete settings.defaultViewId;
+  await prisma.module.update({
+    where: { id: module_.id },
+    data: { settings: settings as object },
+  });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  return {};
+}
+
+/** Export tenant data as JSON (modules, fields, entities). For backup/portability. */
+export async function getTenantExportData(): Promise<{ error?: string; data?: Record<string, unknown> }> {
+  await requireDashboardPermission(PERMISSIONS.entitiesRead);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const modules = await prisma.module.findMany({
+    where: { tenantId, isActive: true },
+    orderBy: { sortOrder: "asc" },
+    include: { fields: { orderBy: { sortOrder: "asc" } } },
+  });
+  const exportModules = modules.map((m) => ({
+    name: m.name,
+    slug: m.slug,
+    description: m.description ?? null,
+    fields: m.fields.map((f) => ({
+      name: f.name,
+      slug: f.slug,
+      fieldType: f.fieldType,
+      isRequired: f.isRequired,
+      settings: f.settings,
+    })),
+  }));
+  const entitiesByModule: Record<string, { id: string; data: unknown; createdAt: string }[]> = {};
+  const limitPerModule = APP_CONFIG.exportEntitiesPerModuleLimit;
+  for (const m of modules) {
+    const list = await prisma.entity.findMany({
+      where: { tenantId, moduleId: m.id, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      take: limitPerModule,
+      select: { id: true, data: true, createdAt: true },
+    });
+    entitiesByModule[m.slug] = list.map((e) => ({
+      id: e.id,
+      data: e.data,
+      createdAt: e.createdAt.toISOString(),
+    }));
+  }
+  const data = {
+    exportVersion: 1,
+    exportedAt: new Date().toISOString(),
+    tenantId,
+    modules: exportModules,
+    entitiesByModule,
+  };
+  return { data };
+}
+
+/** Import tenant data from JSON produced by export. Creates missing modules/fields and entities. */
+export async function importTenantData(
+  jsonString: string
+): Promise<{ error?: string; created?: { modules: number; entities: number } }> {
+  await requireDashboardPermission(PERMISSIONS.modulesManage);
+  await requireDashboardPermission(PERMISSIONS.entitiesWrite);
+  const tenantId = (await headers()).get("x-tenant-id");
+  const userId = (await headers()).get("x-user-id");
+  if (!tenantId || !userId) return { error: "Unauthorized" };
+  let payload: {
+    exportVersion?: number;
+    modules?: { name: string; slug: string; description?: string | null; fields?: { name: string; slug: string; fieldType: string; isRequired?: boolean; settings?: unknown }[] }[];
+    entitiesByModule?: Record<string, { id: string; data: unknown; createdAt?: string }[]>;
+  };
+  try {
+    payload = JSON.parse(jsonString) as typeof payload;
+  } catch {
+    return { error: "Invalid JSON." };
+  }
+  const exportVersion = typeof payload.exportVersion === "number" ? payload.exportVersion : 1;
+  if (exportVersion > 1) {
+    return { error: `Unsupported export version ${exportVersion}. This importer supports version 1.` };
+  }
+  const modules = Array.isArray(payload.modules) ? payload.modules : [];
+  const entitiesByModule = payload.entitiesByModule && typeof payload.entitiesByModule === "object" ? payload.entitiesByModule : {};
+  let modulesCreated = 0;
+  let entitiesCreated = 0;
+  const slugToModuleId = new Map<string, string>();
+  const existingModules = await prisma.module.findMany({
+    where: { tenantId, isActive: true },
+    select: { id: true, slug: true },
+  });
+  for (const m of existingModules) slugToModuleId.set(m.slug, m.id);
+  for (const m of modules) {
+    const slug = (m.slug ?? "").trim();
+    const name = (m.name ?? "").trim() || slug;
+    if (!slug) continue;
+    let moduleId = slugToModuleId.get(slug);
+    if (!moduleId) {
+      const maxOrder = await prisma.module.findMany({ where: { tenantId }, orderBy: { sortOrder: "desc" }, take: 1, select: { sortOrder: true } });
+      const created = await prisma.module.create({
+        data: {
+          tenantId,
+          name,
+          slug,
+          description: m.description ?? null,
+          sortOrder: (maxOrder[0]?.sortOrder ?? -1) + 1,
+        },
+        select: { id: true },
+      });
+      moduleId = created.id;
+      slugToModuleId.set(slug, moduleId);
+      modulesCreated++;
+      const fields = Array.isArray(m.fields) ? m.fields : [];
+      for (let i = 0; i < fields.length; i++) {
+        const f = fields[i];
+        await prisma.field.create({
+          data: {
+            moduleId,
+            name: (f.name ?? "").trim() || (f.slug ?? "").trim() || `Field ${i + 1}`,
+            slug: (f.slug ?? "").trim() || `field_${i + 1}`,
+            fieldType: (f.fieldType ?? "text").trim() || "text",
+            isRequired: !!f.isRequired,
+            settings: (f.settings != null && typeof f.settings === "object") ? (f.settings as object) : {},
+            sortOrder: i,
+          },
+        });
+      }
+    }
+    const list = entitiesByModule[slug];
+    if (!Array.isArray(list)) continue;
+    const moduleFields = await prisma.field.findMany({ where: { moduleId }, orderBy: { sortOrder: "asc" }, select: { slug: true, fieldType: true } });
+    for (const item of list) {
+      const data = item?.data && typeof item.data === "object" ? (item.data as Record<string, unknown>) : {};
+      const searchText = Object.values(data)
+        .flatMap((v) => (Array.isArray(v) ? v : [v]))
+        .filter((v): v is string => typeof v === "string" && v.length > 0)
+        .join(" ")
+        .slice(0, 10000) || null;
+      await prisma.entity.create({
+        data: {
+          tenantId,
+          moduleId,
+          data: data as object,
+          searchText,
+          createdBy: userId,
+        },
+      });
+      entitiesCreated++;
+    }
+  }
+  revalidatePath("/dashboard");
+  return { created: { modules: modulesCreated, entities: entitiesCreated } };
+}
+
+/** Start Stripe Connect onboarding (redirect to Stripe). */
+export async function startStripeConnectOnboarding(): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { name: true, settings: true },
+  });
+  if (!tenant) return { error: "Tenant not found" };
+  const settings = (tenant.settings as Record<string, unknown>) ?? {};
+  const existingAccountId = settings.stripeConnectAccountId as string | undefined;
+  const { createConnectAccount, createConnectAccountLink, getTenantConnectConfig } = await import("@/lib/stripe-connect");
+  let accountId: string;
+  if (existingAccountId) {
+    accountId = existingAccountId;
+  } else {
+    const firstUser = await prisma.user.findFirst({
+      where: { tenantId, isActive: true },
+      select: { email: true, name: true },
+    });
+    const result = await createConnectAccount(
+      tenantId,
+      firstUser?.email ?? "",
+      tenant.name ?? ""
+    );
+    if ("error" in result) return { error: result.error };
+    accountId = result.accountId;
+  }
+  const base = process.env.NEXT_PUBLIC_APP_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  const result = await createConnectAccountLink(
+    tenantId,
+    accountId,
+    `${base}/dashboard/settings?stripe_connect=refresh`,
+    `${base}/dashboard/settings?stripe_connect=return`
+  );
+  if ("error" in result) return { error: result.error };
+  redirect(result.url);
+}
+
+/** Form action for Connect Stripe button (accepts formData for useActionState). */
+export async function connectStripeFormAction(_prev: unknown, _formData: FormData): Promise<{ error?: string }> {
+  return startStripeConnectOnboarding();
 }
 
 // -----------------------------------------------------------------------------
@@ -449,7 +1227,43 @@ export async function updateDashboardSettings(
     }
   }
 
-  if (section !== "backend") {
+  if (section === "backend-webhooks") {
+    const webhookUrl = (formData.get("webhookUrl") as string)?.trim();
+    const webhookSecret = (formData.get("webhookSecret") as string)?.trim();
+    if (webhookUrl !== undefined) settings.webhookUrl = webhookUrl || undefined;
+    if (webhookSecret !== undefined && webhookSecret !== "") settings.webhookSecret = webhookSecret;
+  }
+
+  if (section === "backend-locale") {
+    const locale = (formData.get("locale") as string)?.trim();
+    settings.locale = locale && /^[a-z]{2}(-[A-Z]{2})?$/.test(locale) ? locale : undefined;
+  }
+
+  if (section === "backend-features") {
+    const features = (settings.features as Record<string, boolean>) ?? {};
+    features.myOrders = formData.has("featureMyOrders");
+    features.refunds = formData.has("featureRefunds");
+    settings.features = features;
+  }
+
+  if (section === "email-notifications") {
+    const notificationEmail = (formData.get("notificationEmail") as string)?.trim();
+    settings.notificationEmail = notificationEmail && notificationEmail.includes("@") ? notificationEmail : undefined;
+    const fromAddr = (formData.get("emailFromAddress") as string)?.trim();
+    settings.emailFromAddress = fromAddr && fromAddr.includes("@") ? fromAddr : undefined;
+    const fromName = (formData.get("emailFromName") as string)?.trim();
+    settings.emailFromName = fromName || undefined;
+    const replyTo = (formData.get("emailReplyTo") as string)?.trim();
+    settings.emailReplyTo = replyTo && replyTo.includes("@") ? replyTo : undefined;
+    const notifications = (settings.emailNotifications as Record<string, boolean>) ?? {};
+    notifications.approvalRequested = formData.has("approvalRequested");
+    notifications.paymentReceived = formData.has("paymentReceived");
+    notifications.paymentFailed = formData.has("paymentFailed");
+    notifications.webhookFailed = formData.has("webhookFailed");
+    settings.emailNotifications = notifications;
+  }
+
+  if (section !== "backend" && section !== "backend-webhooks") {
     const site = (settings.site as Record<string, unknown>) ?? {};
     if (formData.has("siteName")) {
       const v = (formData.get("siteName") as string)?.trim();
@@ -488,6 +1302,21 @@ export async function updateDashboardSettings(
     if (ogImage !== undefined) site.ogImage = ogImage || undefined;
     const canonicalBaseUrl = (formData.get("canonicalBaseUrl") as string)?.trim();
     if (canonicalBaseUrl !== undefined) site.canonicalBaseUrl = canonicalBaseUrl || undefined;
+    const faviconUrl = (formData.get("faviconUrl") as string)?.trim();
+    if (formData.has("faviconUrl")) site.faviconUrl = faviconUrl || undefined;
+    const customDomain = (formData.get("customDomain") as string)?.trim();
+    if (customDomain !== undefined) site.customDomain = customDomain || undefined;
+    if (formData.has("waitlistModuleSlug")) {
+      const wlMod = (formData.get("waitlistModuleSlug") as string)?.trim();
+      const wlEv = (formData.get("waitlistEventFieldSlug") as string)?.trim();
+      const wlEm = (formData.get("waitlistEmailFieldSlug") as string)?.trim();
+      const wlQty = (formData.get("waitlistQuantityFieldSlug") as string)?.trim();
+      if (wlMod && wlEv && wlEm && wlQty) {
+        site.waitlist = { moduleSlug: wlMod, eventFieldSlug: wlEv, emailFieldSlug: wlEm, quantityFieldSlug: wlQty };
+      } else {
+        site.waitlist = undefined;
+      }
+    }
     const homepageSidebarModule = (formData.get("homepageSidebarModule") as string)?.trim();
     if (homepageSidebarModule !== undefined) {
       site.homepageSidebarModule = homepageSidebarModule || undefined;
@@ -495,6 +1324,17 @@ export async function updateDashboardSettings(
     const sidebarFieldSlugs = formData.getAll("homepageSidebarFieldSlugs").filter((v): v is string => typeof v === "string" && v.trim() !== "");
     if (sidebarFieldSlugs.length >= 0) {
       site.homepageSidebarFieldSlugs = sidebarFieldSlugs.length ? sidebarFieldSlugs : undefined;
+    }
+    if (formData.has("footerHtml")) {
+      const v = (formData.get("footerHtml") as string)?.trim();
+      site.footerHtml = v || undefined;
+    }
+    if (formData.has("cookieBannerSection")) {
+      site.showCookieBanner = formData.get("showCookieBanner") === "1";
+    }
+    if (formData.has("cookiePolicyUrl")) {
+      const v = (formData.get("cookiePolicyUrl") as string)?.trim();
+      site.cookiePolicyUrl = v || undefined;
     }
     settings.site = Object.keys(site).length ? site : undefined;
     if (formData.has("contactEmail")) {
@@ -546,6 +1386,47 @@ export async function updateDashboardSettings(
   });
 
   revalidatePath("/dashboard");
+  revalidatePath("/dashboard/settings");
+  redirect("/dashboard/settings?success=saved");
+}
+
+// -----------------------------------------------------------------------------
+// API key management (create / revoke)
+// -----------------------------------------------------------------------------
+
+export type CreateApiKeyState = { key?: string; error?: string };
+
+export async function createApiKeyAction(
+  tenantId: string,
+  _prev: unknown,
+  formData: FormData
+): Promise<CreateApiKeyState> {
+  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  const userId = (await headers()).get("x-user-id");
+  const sessionTenantId = (await headers()).get("x-tenant-id");
+  if (!userId || sessionTenantId !== tenantId) return { error: "Unauthorized" };
+  const name = (formData.get("apiKeyName") as string)?.trim() || "API key";
+  const { createApiKey } = await import("@/lib/api-keys");
+  const result = await createApiKey(tenantId, name, userId);
+  if ("error" in result) return { error: result.error };
+  return { key: result.key };
+}
+
+export async function revokeApiKeyAction(tenantId: string, formData: FormData): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  const userId = (await headers()).get("x-user-id");
+  const sessionTenantId = (await headers()).get("x-tenant-id");
+  if (!userId || sessionTenantId !== tenantId) return { error: "Unauthorized" };
+  const apiKeyId = (formData.get("apiKeyId") as string)?.trim();
+  if (!apiKeyId) return { error: "Missing API key ID." };
+  const { revokeApiKey } = await import("@/lib/api-keys");
+  return revokeApiKey(tenantId, apiKeyId, userId);
+}
+
+/** Form action for Revoke API key button; redirects on success. */
+export async function revokeApiKeyFormAction(tenantId: string, formData: FormData): Promise<void> {
+  const result = await revokeApiKeyAction(tenantId, formData);
+  if (result.error) throw new Error(result.error);
   revalidatePath("/dashboard/settings");
   redirect("/dashboard/settings");
 }
@@ -613,6 +1494,81 @@ export async function createModuleFromAi(
   redirect(`/dashboard/m/${module_.slug}`);
 }
 
+/** Apply an industry template: create modules + fields + optional default views for the tenant. */
+export async function applyTemplate(templateId: string) {
+  await requireDashboardPermission(PERMISSIONS.modulesManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) throw new Error("Unauthorized");
+
+  const { getTemplate } = await import("@/lib/templates");
+  const template = getTemplate(templateId);
+  if (!template) return { error: "Template not found." };
+
+  const existingSlugs = await prisma.module.findMany({ where: { tenantId }, select: { slug: true } }).then((ms) => new Set(ms.map((m) => m.slug)));
+  for (const mod of template.modules) {
+    if (existingSlugs.has(mod.slug)) return { error: `Module "${mod.slug}" already exists. Remove it or choose a different template.` };
+  }
+
+  const maxOrder = await prisma.module.aggregate({ where: { tenantId }, _max: { sortOrder: true } }).then((r) => r._max.sortOrder ?? -1);
+  let sortOrder = maxOrder + 1;
+  let firstSlug: string | null = null;
+
+  for (const mod of template.modules) {
+    const module_ = await prisma.module.create({
+      data: {
+        tenantId,
+        name: mod.name,
+        slug: mod.slug,
+        description: mod.description ?? null,
+        sortOrder: sortOrder++,
+      },
+    });
+    if (!firstSlug) firstSlug = module_.slug;
+
+    for (let i = 0; i < mod.fields.length; i++) {
+      const f = mod.fields[i];
+      const settings: Record<string, unknown> = {};
+      if (f.settings?.options) settings.options = f.settings.options;
+      if (f.settings?.targetModuleSlug) settings.targetModuleSlug = f.settings.targetModuleSlug;
+      await prisma.field.create({
+        data: {
+          moduleId: module_.id,
+          name: f.name,
+          slug: f.slug,
+          fieldType: f.fieldType,
+          isRequired: f.isRequired ?? false,
+          sortOrder: i,
+          settings: settings as object,
+        },
+      });
+    }
+
+    if (mod.defaultView) {
+      const fieldSlugs = mod.fields.map((f) => f.slug);
+      const columns = fieldSlugs.slice(0, 6);
+      const viewSettings: Record<string, unknown> = {};
+      if (mod.defaultView.viewType === "board" && mod.defaultView.boardColumnField) viewSettings.boardColumnField = mod.defaultView.boardColumnField;
+      if (mod.defaultView.viewType === "calendar" && mod.defaultView.dateField) viewSettings.dateField = mod.defaultView.dateField;
+      await prisma.view.create({
+        data: {
+          tenantId,
+          moduleId: module_.id,
+          name: "Default",
+          viewType: mod.defaultView.viewType,
+          filter: {},
+          sort: [{ field: "createdAt", dir: "desc" }],
+          columns: columns as object,
+          settings: viewSettings as object,
+        },
+      });
+    }
+  }
+
+  revalidatePath("/dashboard");
+  if (firstSlug) revalidatePath(`/dashboard/m/${firstSlug}`);
+  redirect(firstSlug ? `/dashboard/m/${firstSlug}` : "/dashboard");
+}
+
 export async function addFieldsToModule(
   tenantId: string,
   moduleSlug: string,
@@ -650,6 +1606,148 @@ export async function addFieldsToModule(
   revalidatePath("/dashboard");
   revalidatePath(`/dashboard/m/${moduleSlug}`);
   redirect(`/dashboard/m/${moduleSlug}`);
+}
+
+const FIELD_TYPES = ["text", "number", "date", "boolean", "select", "relation", "relation-multi", "file", "json"] as const;
+
+/** Add a single field to a module (from Manage fields UI). */
+export async function addFieldToModule(moduleSlug: string, _prev: unknown, formData: FormData) {
+  await requireDashboardPermission(PERMISSIONS.modulesManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug, isActive: true },
+    include: { fields: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!module_) return { error: "Module not found." };
+  const name = (formData.get("name") as string)?.trim();
+  if (!name) return { error: "Field name is required." };
+  let slug = (formData.get("slug") as string)?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || name.toLowerCase().replace(/\s+/g, "_");
+  const fieldType = (formData.get("fieldType") as string)?.trim();
+  if (!fieldType || !FIELD_TYPES.includes(fieldType as (typeof FIELD_TYPES)[number])) return { error: "Valid field type is required." };
+  const isRequired = formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
+  const existingSlugs = new Set(module_.fields.map((f) => f.slug));
+  let n = 0;
+  while (existingSlugs.has(slug)) slug = `${slug}_${++n}`;
+  const settings: Record<string, unknown> = {};
+  if (fieldType === "select") {
+    const opts = (formData.get("options") as string)?.trim();
+    if (opts) settings.options = opts.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  if (fieldType === "relation" || fieldType === "relation-multi") {
+    const target = (formData.get("targetModuleSlug") as string)?.trim();
+    if (target) settings.targetModuleSlug = target;
+  }
+  const sortOrder = module_.fields.length > 0 ? Math.max(...module_.fields.map((f) => f.sortOrder)) + 1 : 0;
+  await prisma.field.create({
+    data: {
+      moduleId: module_.id,
+      name,
+      slug,
+      fieldType,
+      isRequired,
+      sortOrder,
+      settings: Object.keys(settings).length > 0 ? (settings as object) : undefined,
+    },
+  });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/fields`);
+  redirect(`/dashboard/m/${moduleSlug}/fields`);
+}
+
+/** Update a field (name, type, required, settings). Slug cannot be changed. */
+export async function updateFieldInModule(moduleSlug: string, fieldSlug: string, _prev: unknown, formData: FormData): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.modulesManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug, isActive: true },
+    include: { fields: { where: { slug: fieldSlug } } },
+  });
+  if (!module_) return { error: "Module not found." };
+  const field = module_.fields[0];
+  if (!field) return { error: "Field not found." };
+  const name = (formData.get("name") as string)?.trim();
+  if (!name) return { error: "Field name is required." };
+  const fieldType = (formData.get("fieldType") as string)?.trim();
+  if (!fieldType || !FIELD_TYPES.includes(fieldType as (typeof FIELD_TYPES)[number])) return { error: "Valid field type is required." };
+  const isRequired = formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
+  const settings: Record<string, unknown> = {};
+  if (fieldType === "select") {
+    const opts = (formData.get("options") as string)?.trim();
+    if (opts) settings.options = opts.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  if (fieldType === "relation" || fieldType === "relation-multi") {
+    const target = (formData.get("targetModuleSlug") as string)?.trim();
+    if (target) settings.targetModuleSlug = target;
+  }
+  await prisma.field.update({
+    where: { id: field.id },
+    data: {
+      name,
+      fieldType,
+      isRequired,
+      settings: Object.keys(settings).length > 0 ? (settings as object) : {},
+    },
+  });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/fields`);
+  redirect(`/dashboard/m/${moduleSlug}/fields`);
+}
+
+/** Remove a field (fails if any entity has data for it). */
+export async function removeFieldFromModule(moduleSlug: string, fieldSlug: string): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.modulesManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug },
+    include: { fields: { where: { slug: fieldSlug } } },
+  });
+  if (!module_) return { error: "Module not found." };
+  const field = module_.fields[0];
+  if (!field) return { error: "Field not found." };
+  const rows = await prisma.$queryRaw<[{ count: bigint }]>(
+    Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND (data ? ${fieldSlug})`
+  );
+  const entityCount = Number(rows[0]?.count ?? 0);
+  if (entityCount > 0) {
+    return { error: `Cannot remove: ${entityCount} record(s) have a value for this field. Clear data first.` };
+  }
+  await prisma.field.delete({ where: { id: field.id } });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/fields`);
+  redirect(`/dashboard/m/${moduleSlug}/fields`);
+}
+
+/** Move a field up or down by one position. */
+export async function reorderFieldInModule(moduleSlug: string, fieldSlug: string, direction: "up" | "down") {
+  await requireDashboardPermission(PERMISSIONS.modulesManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) throw new Error("Unauthorized");
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug, isActive: true },
+    include: { fields: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!module_) return { error: "Module not found." };
+  const slugs = module_.fields.map((f) => f.slug);
+  const fromIndex = slugs.indexOf(fieldSlug);
+  if (fromIndex === -1) return { error: "Field not found." };
+  const toIndex = direction === "up" ? fromIndex - 1 : fromIndex + 1;
+  if (toIndex < 0 || toIndex >= slugs.length) return { error: "Already at boundary." };
+  const reordered = [...slugs];
+  const [removed] = reordered.splice(fromIndex, 1);
+  reordered.splice(toIndex, 0, removed);
+  for (let i = 0; i < reordered.length; i++) {
+    const slug = reordered[i];
+    const field = module_.fields.find((f) => f.slug === slug);
+    if (field && field.sortOrder !== i) {
+      await prisma.field.update({ where: { id: field.id }, data: { sortOrder: i } });
+    }
+  }
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/fields`);
+  redirect(`/dashboard/m/${moduleSlug}/fields`);
 }
 
 /** Unified AI: one prompt → create module, add fields, create view, enable public, set home, create entity, update/delete view, rename module, remove field, reorder. */
@@ -782,7 +1880,7 @@ export async function handleAiPrompt(tenantId: string, _prev: unknown, formData:
     await prisma.tenant.update({ where: { id: tenantId }, data: { settings: settings as object } });
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/settings");
-    redirect("/dashboard/settings");
+    redirect("/dashboard/settings?success=saved");
   }
 
   if (intent.intent === "disable_public_module") {
@@ -798,7 +1896,7 @@ export async function handleAiPrompt(tenantId: string, _prev: unknown, formData:
     await prisma.tenant.update({ where: { id: tenantId }, data: { settings: settings as object } });
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/settings");
-    redirect("/dashboard/settings");
+    redirect("/dashboard/settings?success=saved");
   }
 
   if (intent.intent === "set_default_home") {
@@ -1040,7 +2138,7 @@ export async function handleAiPrompt(tenantId: string, _prev: unknown, formData:
     if (!match) return { error: `No deleted record in ${module_.name} matching "${entityRef}".` };
     await prisma.entity.update({ where: { id: match.id }, data: { deletedAt: null } });
     revalidatePath(`/dashboard/m/${moduleSlug}`);
-    redirect(`/dashboard/m/${moduleSlug}`);
+    redirect(`/dashboard/m/${moduleSlug}?success=restored`);
   }
 
   if (intent.intent === "duplicate_entity") {
@@ -1285,6 +2383,107 @@ export async function generateSiteFromAi(
   });
   revalidatePath("/dashboard/settings");
   revalidatePath("/s/[slug]");
-  redirect("/dashboard/settings");
+  redirect("/dashboard/settings?success=saved");
+}
+
+// ---------------------------------------------------------------------------
+// Consent (GDPR-style)
+// ---------------------------------------------------------------------------
+
+import { DEFAULT_CONSENT_TYPES } from "@/lib/consent";
+
+export async function listConsents(filters: { userId?: string; consentType?: string; activeOnly?: boolean }) {
+  await requireDashboardPermission(PERMISSIONS.entitiesRead);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized", consents: [] };
+  const where: { tenantId: string; userId?: string; consentType?: string; revokedAt?: null } = { tenantId };
+  if (filters.userId) where.userId = filters.userId;
+  if (filters.consentType) where.consentType = filters.consentType;
+  if (filters.activeOnly !== false) where.revokedAt = null; // active only
+  const consents = await prisma.consent.findMany({
+    where,
+    orderBy: { grantedAt: "desc" },
+    take: 200,
+    select: {
+      id: true,
+      consentType: true,
+      grantedAt: true,
+      source: true,
+      revokedAt: true,
+      userId: true,
+      user: { select: { email: true, name: true } },
+    },
+  });
+  return { consents };
+}
+
+export async function revokeConsent(consentId: string): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const c = await prisma.consent.findFirst({
+    where: { id: consentId, tenantId },
+    select: { id: true, revokedAt: true },
+  });
+  if (!c) return { error: "Consent not found." };
+  if (c.revokedAt) return { error: "Consent already revoked." };
+  await prisma.consent.update({
+    where: { id: consentId },
+    data: { revokedAt: new Date() },
+  });
+  revalidatePath("/dashboard/consent");
+  return {};
+}
+
+export async function grantConsentFormAction(_prev: unknown, formData: FormData): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const userId = (formData.get("userId") as string)?.trim();
+  const consentType = (formData.get("consentType") as string)?.trim();
+  const source = (formData.get("source") as string)?.trim() || "dashboard";
+  if (!userId || !consentType) return { error: "User and consent type are required." };
+  if (consentType.length > 50) return { error: "Consent type too long." };
+  const user = await prisma.user.findFirst({
+    where: { id: userId, tenantId },
+    select: { id: true },
+  });
+  if (!user) return { error: "User not found." };
+  await prisma.consent.upsert({
+    where: {
+      tenantId_userId_consentType: { tenantId, userId: user.id, consentType },
+    },
+    create: {
+      tenantId,
+      userId: user.id,
+      consentType,
+      grantedAt: new Date(),
+      source,
+    },
+    update: { grantedAt: new Date(), source, revokedAt: null },
+  });
+  revalidatePath("/dashboard/consent");
+  return {};
+}
+
+export async function updateConsentTypesFormAction(_prev: unknown, formData: FormData): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const raw = (formData.get("consentTypes") as string)?.trim() || "";
+  const consentTypes = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : DEFAULT_CONSENT_TYPES;
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { settings: true },
+  });
+  const settings = (tenant?.settings as Record<string, unknown>) ?? {};
+  settings.consentTypes = consentTypes;
+  await prisma.tenant.update({
+    where: { id: tenantId },
+    data: { settings: settings as object },
+  });
+  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/consent");
+  return {};
 }
 

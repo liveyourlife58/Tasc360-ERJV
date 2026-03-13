@@ -7,8 +7,13 @@ import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getBillingConfig, computeMonthlyTotalUsd } from "@/lib/billing";
 import { AddUserForm } from "./AddUserForm";
 import { TeamTableWithEditModal } from "./TeamTableWithEditModal";
+import { SubscriptionBillingBlock } from "./SubscriptionBillingBlock";
 
-export default async function SubscriptionPage() {
+export default async function SubscriptionPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ success?: string; session_id?: string; gated?: string }>;
+}) {
   const h = await headers();
   const tenantId = h.get("x-tenant-id");
   const userId = h.get("x-user-id");
@@ -16,9 +21,27 @@ export default async function SubscriptionPage() {
 
   await ensureDefaultRoles(tenantId);
 
-  const canManageUsers = await hasPermission(userId, PERMISSIONS.usersManage);
+  const params = await searchParams;
+  const isGated = params.gated === "1";
+  if (params.success && params.session_id) {
+    const { syncTenantSubscriptionFromCheckoutSession } = await import("@/lib/stripe-platform");
+    await syncTenantSubscriptionFromCheckoutSession(params.session_id);
+    redirect("/dashboard/subscription");
+  }
 
-  const [users, roles] = await Promise.all([
+  const canManageUsers = await hasPermission(userId, PERMISSIONS.usersManage);
+  const canManageBilling = await hasPermission(userId, PERMISSIONS.settingsManage);
+
+  const [tenant, users, roles] = await Promise.all([
+    prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        stripeCustomerId: true,
+        stripeSubscriptionId: true,
+        subscriptionStatus: true,
+        subscriptionCurrentPeriodEnd: true,
+      },
+    }),
     prisma.user.findMany({
       where: { tenantId },
       select: {
@@ -42,6 +65,7 @@ export default async function SubscriptionPage() {
   const activeUserCount = users.filter((u) => u.isActive).length;
   const billing = getBillingConfig();
   const estimatedMonthlyUsd = computeMonthlyTotalUsd(activeUserCount);
+  const subscriptionActive = tenant?.subscriptionStatus === "active" || tenant?.subscriptionStatus === "trialing";
 
   return (
     <div>
@@ -51,6 +75,12 @@ export default async function SubscriptionPage() {
           Back to Home
         </Link>
       </div>
+
+      {isGated && (
+        <div className="view-error" style={{ marginBottom: "1rem", padding: "1rem" }} role="alert">
+          Your subscription is not active. Subscribe or update your billing to access the dashboard.
+        </div>
+      )}
 
       <section className="subscription-section">
         <h2 className="subscription-heading">Plan &amp; billing</h2>
@@ -68,18 +98,22 @@ export default async function SubscriptionPage() {
             <p className="subscription-plan-proration-intro">
               Both fees are prorated when you sign up mid-cycle, add/remove users, or cancel.
             </p>
-            <p className="subscription-plan-proration-example-title">Example (March 1–31):</p>
-            <ul className="subscription-plan-proration-list">
-              <li>Sign up March 15 → platform <strong>${(billing.platformFeeUsd * (17 / 31)).toFixed(2)}</strong></li>
-              <li>Add user March 15 → <strong>${(billing.perUserFeeUsd * (17 / 31)).toFixed(2)}</strong></li>
-              <li>Remove user March 20 → <strong>${(billing.perUserFeeUsd * (11 / 31)).toFixed(2)}</strong> credit</li>
-            </ul>
-            <p className="subscription-plan-proration-hint">(Remove example when Stripe is live.)</p>
           </div>
           <p className="subscription-next-invoice">
-            <strong>Next invoice:</strong> <span className="subscription-next-invoice-value">— (connect Stripe to see)</span>
+            <strong>Status:</strong>{" "}
+            <span className="subscription-next-invoice-value">
+              {tenant?.subscriptionStatus
+                ? `${tenant.subscriptionStatus}${tenant.subscriptionCurrentPeriodEnd ? ` · Renews ${tenant.subscriptionCurrentPeriodEnd.toLocaleDateString()}` : ""}`
+                : "Not subscribed"}
+            </span>
           </p>
         </div>
+        {canManageBilling && (
+          <SubscriptionBillingBlock
+            hasSubscription={!!tenant?.stripeSubscriptionId}
+            subscriptionActive={subscriptionActive}
+          />
+        )}
         <p className="settings-hint">
           Billing is managed by Stripe. Adding or removing users updates your next invoice automatically.
         </p>

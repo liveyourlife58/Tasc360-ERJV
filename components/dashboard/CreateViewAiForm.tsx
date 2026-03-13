@@ -52,7 +52,7 @@ export function CreateViewAiForm({ ctx }: { ctx: Ctx }) {
         Cancel
       </button>
       {state && typeof state === "object" && "error" in state && (
-        <span className="view-error">{(state as { error: string }).error}</span>
+        <span className="view-error" role="alert">{(state as { error: string }).error}</span>
       )}
     </form>
   );

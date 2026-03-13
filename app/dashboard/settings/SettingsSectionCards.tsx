@@ -18,9 +18,18 @@ type SectionId =
   | "customer-sidebar"
   | "customer-modules"
   | "customer-seo"
+  | "customer-waitlist"
+  | "customer-footer"
+  | "customer-cookie-banner"
   | "backend-branding"
   | "backend-home"
-  | "backend-api";
+  | "backend-payments"
+  | "backend-api"
+  | "backend-features"
+  | "backend-webhooks"
+  | "backend-locale"
+  | "email-notifications"
+  | "consent-types";
 
 const SECTION_TITLES: Record<SectionId, string> = {
   "customer-ai": "Homepage Text",
@@ -29,9 +38,18 @@ const SECTION_TITLES: Record<SectionId, string> = {
   "customer-sidebar": "Homepage right column",
   "customer-modules": "Public modules",
   "customer-seo": "SEO",
+  "customer-waitlist": "Waitlist",
+  "customer-footer": "Footer",
+  "customer-cookie-banner": "Cookie banner",
   "backend-branding": "Branding",
   "backend-home": "Default home",
+  "backend-payments": "Payments (Stripe)",
   "backend-api": "API access",
+  "backend-features": "Feature flags",
+  "backend-webhooks": "Webhooks",
+  "backend-locale": "Locale & format",
+  "email-notifications": "Email notifications",
+  "consent-types": "Consent types",
 };
 
 type Props = {
@@ -47,6 +65,9 @@ type Props = {
   currentSiteName: string;
   currentTagline: string;
   currentHeroImage?: string;
+  currentFooterHtml?: string;
+  currentShowCookieBanner?: boolean;
+  currentCookiePolicyUrl?: string;
   homepageSidebarModule?: string;
   homepageSidebarFieldSlugs?: string[];
   currentHomeContent: string;
@@ -65,6 +86,27 @@ type Props = {
   currentMetaDescription?: string;
   currentOgImage?: string;
   currentCanonicalBaseUrl?: string;
+  currentCustomDomain?: string;
+  currentFaviconUrl?: string;
+  currentWaitlist?: { moduleSlug: string; eventFieldSlug: string; emailFieldSlug: string; quantityFieldSlug: string } | null;
+  stripeConnectConfig?: { accountId: string; onboardingComplete: boolean } | null;
+  connectStripeAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
+  currentWebhookUrl?: string;
+  currentWebhookSecret?: string;
+  currentWebhookDeliveries?: { id: string; event: string; url: string; success: boolean; statusCode: number | null; errorMessage: string | null; createdAt: Date }[];
+  sendTestWebhookAction?: (prev: unknown, formData: FormData) => Promise<{ success: boolean; statusCode?: number; error?: string }>;
+  currentNotificationEmail?: string;
+  emailNotificationFlags?: { approvalRequested?: boolean; paymentReceived?: boolean; paymentFailed?: boolean; webhookFailed?: boolean };
+  currentEmailFromAddress?: string;
+  currentEmailFromName?: string;
+  currentEmailReplyTo?: string;
+  currentLocale?: string;
+  featureFlags?: { myOrders: boolean; refunds: boolean };
+  apiKeys?: { id: string; name: string; keyPrefix: string; lastUsedAt: Date | null; createdAt: Date }[];
+  createApiKeyAction?: (prev: unknown, formData: FormData) => Promise<{ key?: string; error?: string }>;
+  revokeApiKeyAction?: (formData: FormData) => Promise<void>;
+  currentConsentTypes?: string[];
+  updateConsentTypesFormAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
 };
 
 export function SettingsSectionCards(props: Props) {
@@ -90,6 +132,21 @@ export function SettingsSectionCards(props: Props) {
     currentMetaDescription = "",
     currentOgImage = "",
     currentCanonicalBaseUrl = "",
+    currentCustomDomain = "",
+    currentFaviconUrl = "",
+    currentWaitlist = null,
+    stripeConnectConfig = null,
+    connectStripeAction,
+    currentWebhookUrl = "",
+    currentWebhookSecret = "",
+    currentWebhookDeliveries = [],
+    sendTestWebhookAction,
+    currentNotificationEmail = "",
+    emailNotificationFlags = {},
+    currentEmailFromAddress = "",
+    currentEmailFromName = "",
+    currentEmailReplyTo = "",
+    currentLocale = "",
   } = props;
 
   const homeModuleSlug = home?.type ? home.moduleSlug : "";
@@ -102,11 +159,20 @@ export function SettingsSectionCards(props: Props) {
     { id: "customer-sidebar", title: "Homepage right column", desc: "Entity list sidebar" },
     { id: "customer-modules", title: "Public modules", desc: "Which modules appear on the public site" },
     { id: "customer-seo", title: "SEO", desc: "Meta title, description, social image & canonical URL" },
+    { id: "customer-waitlist", title: "Waitlist", desc: "When events are sold out, visitors can join a waitlist" },
+    { id: "customer-footer", title: "Footer", desc: "Custom footer HTML for the customer site" },
+    { id: "customer-cookie-banner", title: "Cookie banner", desc: "Show a cookie consent banner on the customer site" },
   ];
   const backendSections: { id: SectionId; title: string; desc: string }[] = [
     { id: "backend-branding", title: "Branding", desc: "Dashboard name, logo, primary color" },
     { id: "backend-home", title: "Default home", desc: "Where to go after login" },
-    { id: "backend-api", title: "API access", desc: "API key for REST API" },
+    { id: "backend-payments", title: "Payments (Stripe)", desc: "Accept payments from your customers" },
+    { id: "backend-api", title: "API access", desc: "API keys for REST API" },
+    { id: "backend-features", title: "Feature flags", desc: "Enable or disable customer-facing features" },
+    { id: "backend-webhooks", title: "Webhooks", desc: "Receive entity and event notifications" },
+    { id: "backend-locale", title: "Locale & format", desc: "Date and number format for the dashboard" },
+    { id: "email-notifications", title: "Email notifications", desc: "Opt-in emails for approvals, payments, webhook failures" },
+    { id: "consent-types", title: "Consent types", desc: "GDPR-style consent type labels (e.g. marketing, essential). Manage records on Consent page." },
   ];
 
   return (
@@ -165,6 +231,9 @@ export function SettingsSectionCards(props: Props) {
             publicModules={publicModules}
             modulePaymentTypes={modulePaymentTypes}
             currentHeroImage={currentHeroImage}
+            currentFooterHtml={props.currentFooterHtml ?? ""}
+            currentShowCookieBanner={props.currentShowCookieBanner}
+            currentCookiePolicyUrl={props.currentCookiePolicyUrl}
             homepageSidebarModule={homepageSidebarModule}
             homepageSidebarFieldSlugs={homepageSidebarFieldSlugs}
             currentSiteName={currentSiteName}
@@ -175,6 +244,26 @@ export function SettingsSectionCards(props: Props) {
             currentMetaDescription={currentMetaDescription}
             currentOgImage={currentOgImage}
             currentCanonicalBaseUrl={currentCanonicalBaseUrl}
+            currentCustomDomain={currentCustomDomain}
+            currentFaviconUrl={currentFaviconUrl}
+            stripeConnectConfig={stripeConnectConfig}
+            connectStripeAction={connectStripeAction}
+    currentWebhookUrl={currentWebhookUrl}
+    currentWebhookSecret={currentWebhookSecret}
+    currentWebhookDeliveries={currentWebhookDeliveries}
+    sendTestWebhookAction={sendTestWebhookAction}
+    currentNotificationEmail={currentNotificationEmail}
+    emailNotificationFlags={emailNotificationFlags}
+    currentEmailFromAddress={currentEmailFromAddress}
+    currentEmailFromName={currentEmailFromName}
+    currentEmailReplyTo={currentEmailReplyTo}
+    currentLocale={currentLocale}
+    featureFlags={props.featureFlags}
+    apiKeys={props.apiKeys}
+    createApiKeyAction={props.createApiKeyAction}
+    revokeApiKeyAction={props.revokeApiKeyAction}
+            currentConsentTypes={props.currentConsentTypes}
+            updateConsentTypesFormAction={props.updateConsentTypesFormAction}
           />
         </SettingsModal>
       )}
@@ -235,6 +324,9 @@ function SectionModalContent(
     publicModules: Record<string, { slug: string; showInNav?: boolean }>;
     modulePaymentTypes: Record<string, "payment" | "donation" | null>;
     currentHeroImage: string;
+    currentFooterHtml: string;
+    currentShowCookieBanner?: boolean;
+    currentCookiePolicyUrl?: string;
     homepageSidebarModule: string;
     homepageSidebarFieldSlugs: string[];
     currentSiteName: string;
@@ -245,6 +337,26 @@ function SectionModalContent(
     currentMetaDescription: string;
     currentOgImage: string;
     currentCanonicalBaseUrl: string;
+    currentCustomDomain?: string;
+    currentFaviconUrl?: string;
+    stripeConnectConfig?: { accountId: string; onboardingComplete: boolean } | null;
+    connectStripeAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
+    currentWebhookUrl?: string;
+    currentWebhookSecret?: string;
+    currentWebhookDeliveries?: { id: string; event: string; url: string; success: boolean; statusCode: number | null; errorMessage: string | null; createdAt: Date }[];
+    sendTestWebhookAction?: (prev: unknown, formData: FormData) => Promise<{ success: boolean; statusCode?: number; error?: string }>;
+    currentNotificationEmail?: string;
+    emailNotificationFlags?: { approvalRequested?: boolean; paymentReceived?: boolean; paymentFailed?: boolean; webhookFailed?: boolean };
+    currentEmailFromAddress?: string;
+    currentEmailFromName?: string;
+    currentEmailReplyTo?: string;
+    currentLocale?: string;
+    featureFlags?: { myOrders: boolean; refunds: boolean };
+    apiKeys?: { id: string; name: string; keyPrefix: string; lastUsedAt: Date | null; createdAt: Date }[];
+    createApiKeyAction?: (prev: unknown, formData: FormData) => Promise<{ key?: string; error?: string }>;
+    revokeApiKeyAction?: (formData: FormData) => Promise<void>;
+    currentConsentTypes?: string[];
+    updateConsentTypesFormAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
   }
 ) {
   const { sectionId } = props;
@@ -282,14 +394,95 @@ function SectionModalContent(
   if (sectionId === "customer-seo") {
     return <CustomerSeoForm {...props} />;
   }
+  if (sectionId === "customer-waitlist") {
+    return <CustomerWaitlistForm {...props} />;
+  }
+  if (sectionId === "customer-footer") {
+    return (
+      <CustomerFooterForm
+        updateAction={props.updateAction}
+        currentFooterHtml={props.currentFooterHtml ?? ""}
+      />
+    );
+  }
+  if (sectionId === "customer-cookie-banner") {
+    return (
+      <CustomerCookieBannerForm
+        updateAction={props.updateAction}
+        currentShowCookieBanner={props.currentShowCookieBanner ?? false}
+        currentCookiePolicyUrl={props.currentCookiePolicyUrl ?? ""}
+      />
+    );
+  }
   if (sectionId === "backend-branding") {
     return <BackendBrandingForm {...props} />;
   }
   if (sectionId === "backend-home") {
     return <BackendHomeForm {...props} />;
   }
+  if (sectionId === "backend-payments") {
+    return <BackendPaymentsForm stripeConnectConfig={props.stripeConnectConfig} connectStripeAction={props.connectStripeAction} />;
+  }
   if (sectionId === "backend-api") {
-    return <BackendApiForm {...props} />;
+    return (
+      <BackendApiForm
+        {...props}
+        apiKeys={props.apiKeys ?? []}
+        createApiKeyAction={props.createApiKeyAction}
+        revokeApiKeyAction={props.revokeApiKeyAction}
+      />
+    );
+  }
+  if (sectionId === "backend-features") {
+    return (
+      <BackendFeaturesForm
+        updateAction={props.updateAction}
+        myOrders={props.featureFlags?.myOrders ?? true}
+        refunds={props.featureFlags?.refunds ?? true}
+      />
+    );
+  }
+  if (sectionId === "backend-webhooks") {
+    return (
+      <BackendWebhooksForm
+        updateAction={props.updateAction}
+        currentWebhookUrl={props.currentWebhookUrl ?? ""}
+        currentWebhookSecret={props.currentWebhookSecret ?? ""}
+        currentWebhookDeliveries={props.currentWebhookDeliveries ?? []}
+        sendTestWebhookAction={props.sendTestWebhookAction}
+      />
+    );
+  }
+  if (sectionId === "backend-locale") {
+    return (
+      <BackendLocaleForm
+        updateAction={props.updateAction}
+        currentLocale={props.currentLocale ?? ""}
+      />
+    );
+  }
+  if (sectionId === "email-notifications") {
+    return (
+      <EmailNotificationsForm
+        updateAction={props.updateAction}
+        currentNotificationEmail={props.currentNotificationEmail ?? ""}
+        approvalRequested={props.emailNotificationFlags?.approvalRequested ?? false}
+        paymentReceived={props.emailNotificationFlags?.paymentReceived ?? false}
+        paymentFailed={props.emailNotificationFlags?.paymentFailed ?? false}
+        webhookFailed={props.emailNotificationFlags?.webhookFailed ?? false}
+        currentEmailFromAddress={props.currentEmailFromAddress ?? ""}
+        currentEmailFromName={props.currentEmailFromName ?? ""}
+        currentEmailReplyTo={props.currentEmailReplyTo ?? ""}
+      />
+    );
+  }
+  if (sectionId === "consent-types") {
+    return (
+      <ConsentTypesForm
+        updateConsentTypesFormAction={props.updateConsentTypesFormAction!}
+        currentConsentTypes={props.currentConsentTypes ?? []}
+      />
+    );
   }
   return null;
 }
@@ -558,6 +751,8 @@ function CustomerSeoForm({
   currentMetaDescription,
   currentOgImage,
   currentCanonicalBaseUrl,
+  currentCustomDomain,
+  currentFaviconUrl,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
   publicModules: Record<string, { slug: string; showInNav?: boolean }>;
@@ -570,8 +765,11 @@ function CustomerSeoForm({
   currentMetaDescription: string;
   currentOgImage: string;
   currentCanonicalBaseUrl: string;
+  currentCustomDomain?: string;
+  currentFaviconUrl?: string;
 }) {
   const [state, formAction] = useActionState(updateAction, null);
+  const customDomain = currentCustomDomain ?? "";
   return (
     <form action={formAction} className="settings-form">
       <input type="hidden" name="settingsSection" value="customer" />
@@ -586,6 +784,11 @@ function CustomerSeoForm({
       />
       <div className="settings-single-section">
         <p className="settings-hint">Optional. Overrides used for search results and social sharing. Leave blank to use site name and tagline.</p>
+        <div className="form-group">
+          <label htmlFor="seo-faviconUrl">Favicon URL</label>
+          <input id="seo-faviconUrl" name="faviconUrl" type="url" defaultValue={currentFaviconUrl ?? ""} placeholder="https://.../favicon.ico" className="form-control" />
+          <span className="form-hint">Shown in browser tabs. Use a square image (e.g. 32×32 or 64×64).</span>
+        </div>
         <div className="form-group">
           <label htmlFor="seo-metaTitle">Meta title</label>
           <input id="seo-metaTitle" name="metaTitle" type="text" defaultValue={currentMetaTitle} placeholder="e.g. My Site – Tagline" className="form-control" />
@@ -602,6 +805,128 @@ function CustomerSeoForm({
           <label htmlFor="seo-canonicalBaseUrl">Canonical base URL</label>
           <input id="seo-canonicalBaseUrl" name="canonicalBaseUrl" type="url" defaultValue={currentCanonicalBaseUrl} placeholder="https://yourdomain.com" className="form-control" />
         </div>
+        <div className="form-group">
+          <label htmlFor="seo-customDomain">Custom domain</label>
+          <input id="seo-customDomain" name="customDomain" type="text" defaultValue={customDomain} placeholder="e.g. donate.yourorg.org" className="form-control" />
+          <span className="form-hint">Point your domain&apos;s DNS to this app; visitors to this host will be shown your customer site.</span>
+        </div>
+      </div>
+      {state && typeof state === "object" && "error" in state ? <p className="view-error" role="alert">{String((state as { error: string }).error)}</p> : null}
+      <button type="submit" className="btn btn-primary">Save</button>
+    </form>
+  );
+}
+
+function CustomerWaitlistForm({
+  updateAction,
+  modules = [],
+  currentWaitlist = null,
+}: {
+  updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  modules?: { id: string; name: string; slug: string; fields?: { id: string; slug: string; name: string }[] }[];
+  currentWaitlist?: { moduleSlug: string; eventFieldSlug: string; emailFieldSlug: string; quantityFieldSlug: string } | null;
+}) {
+  const [state, formAction] = useActionState(updateAction, null);
+  const wl = currentWaitlist ?? { moduleSlug: "", eventFieldSlug: "", emailFieldSlug: "", quantityFieldSlug: "" };
+  return (
+    <form action={formAction} className="settings-form">
+      <input type="hidden" name="settingsSection" value="customer" />
+      <p className="settings-hint" style={{ marginBottom: "1rem" }}>
+        When an event or ticket type is sold out, visitors can join a waitlist. Create a module (e.g. &quot;Waitlist entries&quot;) with a relation to your events module, plus email and quantity fields. Enter the module and field slugs below.
+      </p>
+      <div className="form-group">
+        <label htmlFor="waitlistModuleSlug">Waitlist module slug</label>
+        <select id="waitlistModuleSlug" name="waitlistModuleSlug" defaultValue={wl.moduleSlug}>
+          <option value="">— None —</option>
+          {modules.map((m) => (
+            <option key={m.id} value={m.slug}>{m.name} ({m.slug})</option>
+          ))}
+        </select>
+      </div>
+      <div className="form-group">
+        <label htmlFor="waitlistEventFieldSlug">Event / entity relation field slug</label>
+        <input id="waitlistEventFieldSlug" name="waitlistEventFieldSlug" type="text" defaultValue={wl.eventFieldSlug} placeholder="e.g. event" />
+      </div>
+      <div className="form-group">
+        <label htmlFor="waitlistEmailFieldSlug">Email field slug</label>
+        <input id="waitlistEmailFieldSlug" name="waitlistEmailFieldSlug" type="text" defaultValue={wl.emailFieldSlug} placeholder="e.g. email" />
+      </div>
+      <div className="form-group">
+        <label htmlFor="waitlistQuantityFieldSlug">Quantity field slug</label>
+        <input id="waitlistQuantityFieldSlug" name="waitlistQuantityFieldSlug" type="text" defaultValue={wl.quantityFieldSlug} placeholder="e.g. quantity" />
+      </div>
+      {state && typeof state === "object" && "error" in state ? <p className="view-error" role="alert">{String((state as { error: string }).error)}</p> : null}
+      <button type="submit" className="btn btn-primary">Save</button>
+    </form>
+  );
+}
+
+function CustomerFooterForm({
+  updateAction,
+  currentFooterHtml,
+}: {
+  updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  currentFooterHtml: string;
+}) {
+  const [state, formAction] = useActionState(updateAction, null);
+  return (
+    <form action={formAction} className="settings-form">
+      <input type="hidden" name="settingsSection" value="customer" />
+      <div className="form-group">
+        <label htmlFor="footerHtml">Footer HTML (optional)</label>
+        <textarea
+          id="footerHtml"
+          name="footerHtml"
+          rows={6}
+          defaultValue={currentFooterHtml}
+          placeholder={'e.g. <p>© 2025 My Site. <a href="/s/your-slug/contact">Contact</a></p>'}
+          className="form-control"
+        />
+        <span className="form-hint">Shown at the bottom of every page on your customer site. Leave blank for default &quot;© year Site name. All rights reserved.&quot; plus a Sitemap link. You can add a sitemap link in your HTML: <code>/s/your-slug/sitemap.xml</code></span>
+      </div>
+      {state && typeof state === "object" && "error" in state ? <p className="view-error" role="alert">{String((state as { error: string }).error)}</p> : null}
+      <button type="submit" className="btn btn-primary">Save</button>
+    </form>
+  );
+}
+
+function CustomerCookieBannerForm({
+  updateAction,
+  currentShowCookieBanner,
+  currentCookiePolicyUrl,
+}: {
+  updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  currentShowCookieBanner: boolean;
+  currentCookiePolicyUrl: string;
+}) {
+  const [state, formAction] = useActionState(updateAction, null);
+  return (
+    <form action={formAction} className="settings-form">
+      <input type="hidden" name="settingsSection" value="customer" />
+      <input type="hidden" name="cookieBannerSection" value="1" />
+      <div className="form-group">
+        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <input
+            type="checkbox"
+            name="showCookieBanner"
+            value="1"
+            defaultChecked={currentShowCookieBanner}
+          />
+          Show cookie consent banner
+        </label>
+        <span className="form-hint">When enabled, visitors see a banner about cookie use and can dismiss it. The choice is stored in their browser.</span>
+      </div>
+      <div className="form-group">
+        <label htmlFor="cookiePolicyUrl">Privacy / cookie policy URL (optional)</label>
+        <input
+          id="cookiePolicyUrl"
+          name="cookiePolicyUrl"
+          type="url"
+          defaultValue={currentCookiePolicyUrl}
+          placeholder="https://yoursite.com/privacy"
+          className="form-control"
+        />
+        <span className="form-hint">Link shown in the banner. Leave blank to show a link to the Contact page instead.</span>
       </div>
       {state && typeof state === "object" && "error" in state ? <p className="view-error" role="alert">{String((state as { error: string }).error)}</p> : null}
       <button type="submit" className="btn btn-primary">Save</button>
@@ -756,6 +1081,334 @@ function BackendHomeForm({
   );
 }
 
+function BackendPaymentsForm({
+  stripeConnectConfig = null,
+  connectStripeAction,
+}: {
+  stripeConnectConfig?: { accountId: string; onboardingComplete: boolean } | null;
+  connectStripeAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
+}) {
+  const [state, formAction] = useActionState(connectStripeAction ?? (async () => ({ error: "Not configured" })), null as { error?: string } | null);
+  return (
+    <div className="settings-form">
+      <p className="settings-hint" style={{ marginBottom: "1rem" }}>
+        Connect your Stripe account to accept payments from your customers (tickets, products, donations) on your public site.
+      </p>
+      {stripeConnectConfig ? (
+        <p style={{ marginBottom: "1rem", color: "#059669" }}>
+          {stripeConnectConfig.onboardingComplete
+            ? "Stripe connected. You can accept payments on checkout."
+            : "Stripe account created. Complete onboarding to accept payments."}
+        </p>
+      ) : null}
+      <form action={formAction}>
+        <button type="submit" className="btn btn-primary">
+          {stripeConnectConfig ? "Complete onboarding" : "Connect Stripe"}
+        </button>
+      </form>
+      {state?.error && <p className="view-error" style={{ marginTop: "0.5rem" }} role="alert">{state.error}</p>}
+    </div>
+  );
+}
+
+function BackendWebhooksForm({
+  updateAction,
+  currentWebhookUrl = "",
+  currentWebhookSecret = "",
+  currentWebhookDeliveries = [],
+  sendTestWebhookAction,
+}: {
+  updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  currentWebhookUrl: string;
+  currentWebhookSecret: string;
+  currentWebhookDeliveries?: { id: string; event: string; url: string; success: boolean; statusCode: number | null; errorMessage: string | null; createdAt: Date }[];
+  sendTestWebhookAction?: (prev: unknown, formData: FormData) => Promise<{ success: boolean; statusCode?: number; error?: string }>;
+}) {
+  const [state, formAction] = useActionState(updateAction, null);
+  const [testState, testFormAction] = useActionState(sendTestWebhookAction ?? (async () => ({ success: false, error: "Not configured" })), null as { success: boolean; statusCode?: number; error?: string } | null);
+  return (
+    <div className="settings-form">
+      <form action={formAction}>
+        <input type="hidden" name="settingsSection" value="backend-webhooks" />
+        <p className="settings-hint" style={{ marginBottom: "1rem" }}>
+          When entity create/update/delete events occur, a POST request is sent to your URL with a JSON payload. Include X-Webhook-Event and, if set, X-Webhook-Signature (HMAC-SHA256 of the body).
+        </p>
+        <div className="form-group">
+          <label htmlFor="modal-webhookUrl">Webhook URL</label>
+          <input
+            id="modal-webhookUrl"
+            name="webhookUrl"
+            type="url"
+            placeholder="https://your-server.com/webhooks/tasc360"
+            defaultValue={currentWebhookUrl}
+            className="form-control"
+          />
+        </div>
+        <div className="form-group">
+          <label htmlFor="modal-webhookSecret">Webhook secret (optional)</label>
+          <input
+            id="modal-webhookSecret"
+            name="webhookSecret"
+            type="password"
+            placeholder="Leave blank to keep current"
+            autoComplete="off"
+            className="form-control"
+          />
+        </div>
+        {state && typeof state === "object" && "error" in state ? <p className="view-error" role="alert">{String((state as { error: string }).error)}</p> : null}
+        <button type="submit" className="btn btn-primary">Save</button>
+      </form>
+
+      {sendTestWebhookAction && (
+        <div style={{ marginTop: "1.5rem" }}>
+          <h3 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>Send test event</h3>
+          <form action={testFormAction}>
+            <button type="submit" className="btn btn-secondary">Send test event</button>
+          </form>
+          {testState !== null && (
+            <p style={{ marginTop: "0.5rem", color: testState.success ? "#059669" : "#dc2626" }} role="alert">
+              {testState.success ? `Success (${testState.statusCode ?? 200})` : `Failed: ${testState.error ?? "Unknown"}`}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div style={{ marginTop: "1.5rem" }}>
+        <h3 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>Recent deliveries</h3>
+        {currentWebhookDeliveries.length === 0 ? (
+          <p className="settings-hint">No deliveries yet. Save a URL and send a test event, or trigger entity changes.</p>
+        ) : (
+          <table className="subscription-team-table" style={{ fontSize: "0.875rem" }}>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Event</th>
+                <th>Status</th>
+                <th>Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {currentWebhookDeliveries.map((d) => (
+                <tr key={d.id}>
+                  <td>{new Date(d.createdAt).toLocaleString()}</td>
+                  <td>{d.event}</td>
+                  <td>{d.success ? "OK" : "Failed"}</td>
+                  <td>{d.success ? (d.statusCode != null ? String(d.statusCode) : "—") : (d.errorMessage ?? "—")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const LOCALE_OPTIONS = [
+  { value: "", label: "Default (browser)" },
+  { value: "en-US", label: "English (US)" },
+  { value: "en-GB", label: "English (UK)" },
+  { value: "fr-FR", label: "French (France)" },
+  { value: "de-DE", label: "German" },
+  { value: "es-ES", label: "Spanish" },
+];
+
+function BackendLocaleForm({
+  updateAction,
+  currentLocale,
+}: {
+  updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  currentLocale: string;
+}) {
+  const [state, formAction] = useActionState(updateAction, null);
+  return (
+    <form action={formAction} className="settings-form">
+      <input type="hidden" name="settingsSection" value="backend-locale" />
+      <p className="settings-hint" style={{ marginBottom: "1rem" }}>
+        Date and number format for the dashboard. Leave default to use browser locale.
+      </p>
+      <div className="form-group">
+        <label htmlFor="modal-locale">Locale</label>
+        <select id="modal-locale" name="locale" className="form-control" defaultValue={currentLocale}>
+          {LOCALE_OPTIONS.map((o) => (
+            <option key={o.value || "default"} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+      {state && typeof state === "object" && "error" in state ? (
+        <p className="view-error" role="alert">{String((state as { error: string }).error)}</p>
+      ) : null}
+      <button type="submit" className="btn btn-primary">Save</button>
+    </form>
+  );
+}
+
+function BackendFeaturesForm({
+  updateAction,
+  myOrders,
+  refunds,
+}: {
+  updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  myOrders: boolean;
+  refunds: boolean;
+}) {
+  const [state, formAction] = useActionState(updateAction, null);
+  return (
+    <form action={formAction} className="settings-form">
+      <input type="hidden" name="settingsSection" value="backend-features" />
+      <p className="settings-hint" style={{ marginBottom: "1rem" }}>
+        Turn customer-facing features on or off. Disabled features are hidden or blocked.
+      </p>
+      <div className="form-group">
+        <label className="form-check">
+          <input type="checkbox" name="featureMyOrders" defaultChecked={myOrders} />
+          <span>My orders — show &quot;My orders&quot; link on the public site and allow customers to view orders by email.</span>
+        </label>
+      </div>
+      <div className="form-group">
+        <label className="form-check">
+          <input type="checkbox" name="featureRefunds" defaultChecked={refunds} />
+          <span>Refunds — allow refunding orders from the dashboard (Stripe Connect).</span>
+        </label>
+      </div>
+      {state && typeof state === "object" && "error" in state ? (
+        <p className="view-error" role="alert">{String((state as { error: string }).error)}</p>
+      ) : null}
+      <button type="submit" className="btn btn-primary">Save</button>
+    </form>
+  );
+}
+
+function EmailNotificationsForm({
+  updateAction,
+  currentNotificationEmail,
+  approvalRequested,
+  paymentReceived,
+  paymentFailed = false,
+  webhookFailed,
+  currentEmailFromAddress,
+  currentEmailFromName,
+  currentEmailReplyTo,
+}: {
+  updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  currentNotificationEmail: string;
+  approvalRequested: boolean;
+  paymentReceived: boolean;
+  paymentFailed: boolean;
+  webhookFailed: boolean;
+  currentEmailFromAddress?: string;
+  currentEmailFromName?: string;
+  currentEmailReplyTo?: string;
+}) {
+  const [state, formAction] = useActionState(updateAction, null);
+  return (
+    <form action={formAction} className="settings-form">
+      <input type="hidden" name="settingsSection" value="email-notifications" />
+      <p className="settings-hint" style={{ marginBottom: "1rem" }}>
+        Optional emails via Resend. Set notification email and check the events you want to be notified about.
+      </p>
+      <div className="form-group">
+        <label htmlFor="modal-notificationEmail">Notification email (who receives)</label>
+        <input
+          id="modal-notificationEmail"
+          name="notificationEmail"
+          type="email"
+          placeholder="admin@example.com"
+          defaultValue={currentNotificationEmail}
+          className="form-control"
+        />
+      </div>
+      <p className="settings-hint" style={{ marginTop: "1rem", marginBottom: "0.5rem" }}>
+        Sender (emails appear from your tenant). Leave blank to use platform default with your tenant name; set a custom address only if that domain is verified in Resend.
+      </p>
+      <div className="form-group">
+        <label htmlFor="modal-emailFromName">From name</label>
+        <input
+          id="modal-emailFromName"
+          name="emailFromName"
+          type="text"
+          placeholder="Your company name"
+          defaultValue={currentEmailFromName}
+          className="form-control"
+        />
+      </div>
+      <div className="form-group">
+        <label htmlFor="modal-emailFromAddress">From address (optional)</label>
+        <input
+          id="modal-emailFromAddress"
+          name="emailFromAddress"
+          type="email"
+          placeholder="notifications@yourdomain.com"
+          defaultValue={currentEmailFromAddress}
+          className="form-control"
+        />
+      </div>
+      <div className="form-group">
+        <label htmlFor="modal-emailReplyTo">Reply-To (optional)</label>
+        <input
+          id="modal-emailReplyTo"
+          name="emailReplyTo"
+          type="email"
+          placeholder="support@yourdomain.com"
+          defaultValue={currentEmailReplyTo}
+          className="form-control"
+        />
+      </div>
+      <div className="form-group" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+        <label>Notify me when</label>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <input type="checkbox" name="approvalRequested" defaultChecked={approvalRequested} />
+          Approval requested
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <input type="checkbox" name="paymentReceived" defaultChecked={paymentReceived} />
+          Payment received
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <input type="checkbox" name="paymentFailed" defaultChecked={paymentFailed} />
+          Subscription payment failed (dunning)
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <input type="checkbox" name="webhookFailed" defaultChecked={webhookFailed} />
+          Webhook delivery failed
+        </label>
+      </div>
+      {state && typeof state === "object" && "error" in state ? (
+        <p className="view-error" role="alert">{String((state as { error: string }).error)}</p>
+      ) : null}
+      <button type="submit" className="btn btn-primary">Save</button>
+    </form>
+  );
+}
+
+function ConsentTypesForm({
+  updateConsentTypesFormAction,
+  currentConsentTypes,
+}: {
+  updateConsentTypesFormAction: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
+  currentConsentTypes: string[];
+}) {
+  const [state, formAction] = useActionState(updateConsentTypesFormAction, null as { error?: string } | null);
+  return (
+    <form action={formAction} className="settings-form">
+      <div className="form-group">
+        <label htmlFor="consent-types-input">Consent types (comma-separated)</label>
+        <input
+          id="consent-types-input"
+          name="consentTypes"
+          type="text"
+          defaultValue={currentConsentTypes.join(", ")}
+          placeholder="marketing, essential, analytics"
+          className="form-control"
+        />
+        <span className="form-hint">Used when recording or revoking consent. Manage consent records on the Consent page.</span>
+      </div>
+      {state?.error && <p className="view-error" role="alert">{state.error}</p>}
+      <button type="submit" className="btn btn-primary">Save</button>
+    </form>
+  );
+}
+
 function BackendApiForm({
   updateAction,
   branding,
@@ -764,6 +1417,9 @@ function BackendApiForm({
   homeViewId,
   sidebarOrder,
   modules,
+  apiKeys,
+  createApiKeyAction,
+  revokeApiKeyAction,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
   branding?: Branding;
@@ -772,28 +1428,81 @@ function BackendApiForm({
   homeViewId: string;
   sidebarOrder?: string[];
   modules: { id: string; name: string; slug: string }[];
+  apiKeys: { id: string; name: string; keyPrefix: string; lastUsedAt: Date | null; createdAt: Date }[];
+  createApiKeyAction?: (prev: unknown, formData: FormData) => Promise<{ key?: string; error?: string }>;
+  revokeApiKeyAction?: (formData: FormData) => Promise<void>;
 }) {
-  const [state, formAction] = useActionState(updateAction, null);
+  const [backendState, backendFormAction] = useActionState(updateAction, null);
+  const [createState, createFormAction] = useActionState(createApiKeyAction ?? (async () => ({ error: "Not configured" })), null);
   return (
-    <form action={formAction} className="settings-form">
-      <input type="hidden" name="settingsSection" value="backend" />
-      <input type="hidden" name="sidebarOrder" value={JSON.stringify(sidebarOrder ?? modules.map((m) => m.slug))} />
-      <input type="hidden" name="brandingName" value={branding?.name ?? ""} />
-      <input type="hidden" name="brandingLogo" value={branding?.logo ?? ""} />
-      <input type="hidden" name="brandingPrimaryColor" value={branding?.primaryColor ?? ""} />
-      <input type="hidden" name="homeType" value={home?.type ?? "none"} />
-      <input type="hidden" name="homeModuleSlug" value={homeModuleSlug} />
-      <input type="hidden" name="homeViewId" value={homeViewId} />
-      <div className="settings-single-section">
-        <p className="settings-hint">Use X-API-Key header with the same value to call the REST API.</p>
-        <div className="form-group">
-          <label htmlFor="modal-apiKey">API key</label>
-          <input id="modal-apiKey" name="apiKey" type="password" placeholder="Leave blank to keep current key" autoComplete="off" className="settings-api-key" />
+    <div className="settings-form">
+      {createApiKeyAction && revokeApiKeyAction && (
+        <div className="settings-single-section" style={{ marginBottom: "1.5rem" }}>
+          <h3 className="settings-subheading">API keys</h3>
+          <p className="settings-hint">Create multiple keys (e.g. per integration). Each key can be revoked. Use the X-API-Key header when calling the REST API.</p>
+          {apiKeys.length > 0 && (
+            <table className="entity-table" style={{ marginBottom: "1rem", maxWidth: "100%" }}>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Prefix</th>
+                  <th>Last used</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {apiKeys.map((k) => (
+                  <tr key={k.id}>
+                    <td>{k.name}</td>
+                    <td><code>{k.keyPrefix}…</code></td>
+                    <td>{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : "—"}</td>
+                    <td>
+                      <form action={revokeApiKeyAction} style={{ display: "inline" }}>
+                        <input type="hidden" name="apiKeyId" value={k.id} />
+                        <button type="submit" className="btn btn-secondary" style={{ fontSize: "0.8125rem" }} onClick={(e) => { if (!confirm("Revoke this key? It will stop working immediately.")) e.preventDefault(); }}>Revoke</button>
+                      </form>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <form action={createFormAction} style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "0.5rem", marginBottom: "0.5rem" }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label htmlFor="apiKeyName">New key name</label>
+              <input id="apiKeyName" name="apiKeyName" type="text" placeholder="e.g. Production" className="form-control" style={{ maxWidth: "200px" }} />
+            </div>
+            <button type="submit" className="btn btn-primary">Create key</button>
+          </form>
+          {createState?.key && (
+            <p className="banner-success" role="alert" style={{ marginTop: "0.5rem" }}>
+              Key created. Copy it now — we won&apos;t show it again: <code style={{ wordBreak: "break-all", fontSize: "0.875rem" }}>{createState.key}</code>
+            </p>
+          )}
+          {createState?.error && <p className="view-error" role="alert">{createState.error}</p>}
         </div>
+      )}
+      <div className="settings-single-section">
+        <h3 className="settings-subheading">Legacy API key (optional)</h3>
+        <p className="settings-hint">Single key stored in settings. Prefer creating keys above so you can revoke them. Leave blank to keep the current value.</p>
+        <form action={backendFormAction} className="settings-form">
+          <input type="hidden" name="settingsSection" value="backend" />
+          <input type="hidden" name="sidebarOrder" value={JSON.stringify(sidebarOrder ?? modules.map((m) => m.slug))} />
+          <input type="hidden" name="brandingName" value={branding?.name ?? ""} />
+          <input type="hidden" name="brandingLogo" value={branding?.logo ?? ""} />
+          <input type="hidden" name="brandingPrimaryColor" value={branding?.primaryColor ?? ""} />
+          <input type="hidden" name="homeType" value={home?.type ?? "none"} />
+          <input type="hidden" name="homeModuleSlug" value={homeModuleSlug} />
+          <input type="hidden" name="homeViewId" value={homeViewId} />
+          <div className="form-group">
+            <label htmlFor="modal-apiKey">API key</label>
+            <input id="modal-apiKey" name="apiKey" type="password" placeholder="Leave blank to keep current key" autoComplete="off" className="settings-api-key" />
+          </div>
+          {backendState && typeof backendState === "object" && "error" in backendState ? <p className="view-error" role="alert">{String((backendState as { error: string }).error)}</p> : null}
+          <button type="submit" className="btn btn-primary">Save</button>
+        </form>
       </div>
-      {state && typeof state === "object" && "error" in state ? <p className="view-error" role="alert">{String((state as { error: string }).error)}</p> : null}
-      <button type="submit" className="btn btn-primary">Save</button>
-    </form>
+    </div>
   );
 }
 

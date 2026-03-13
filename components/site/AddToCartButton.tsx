@@ -12,6 +12,8 @@ type AddToCartButtonProps = {
   type: "payment" | "donation";
   quantity?: number;
   label?: string;
+  /** When set (e.g. capacity limit), cap quantity at this value. */
+  maxQuantity?: number;
 };
 
 export function AddToCartButton({
@@ -24,10 +26,13 @@ export function AddToCartButton({
   type,
   quantity = 1,
   label,
+  maxQuantity,
 }: AddToCartButtonProps) {
   const { addItem } = useSiteCart();
 
   function handleAdd() {
+    const qty = maxQuantity != null ? Math.min(quantity, maxQuantity) : quantity;
+    if (qty < 1) return;
     addItem({
       entityId,
       segment,
@@ -35,7 +40,7 @@ export function AddToCartButton({
       title,
       amountCents,
       type,
-      quantity,
+      quantity: qty,
     });
   }
 

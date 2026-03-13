@@ -1,19 +1,58 @@
 "use client";
 
-import { useActionState } from "react";
-import type { login, LoginState } from "./actions";
+import { useState } from "react";
+import type { LoginState } from "./actions";
 
 export function LoginForm({
-  action,
+  action: _action,
   from,
 }: {
   action: (prev: LoginState | null, formData: FormData) => Promise<LoginState>;
   from?: string;
 }) {
-  const [state, formAction] = useActionState(action, null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    setPending(true);
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        body: formData,
+        redirect: "manual",
+      });
+      if (res.status === 429) {
+        const body = await res.json().catch(() => ({}));
+        setError(body?.error ?? "Too many login attempts from this address. Try again in 15 minutes.");
+        setPending(false);
+        return;
+      }
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("Location");
+        if (location) {
+          window.location.href = location;
+          return;
+        }
+      }
+      const body = (await res.json().catch(() => null)) as LoginState | null;
+      if (body?.error) setError(body.error);
+      else if (res.ok) {
+        const location = res.headers.get("Location");
+        if (location) window.location.href = location;
+      }
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
-    <form action={formAction} className="login-form">
+    <form onSubmit={handleSubmit} className="login-form">
       {from && <input type="hidden" name="from" value={from} />}
       <div className="form-group">
         <label htmlFor="workspace">Workspace</label>
@@ -46,13 +85,13 @@ export function LoginForm({
           required
         />
       </div>
-      {state?.error && (
+      {error && (
         <p className="login-error" role="alert">
-          {state.error}
+          {error}
         </p>
       )}
-      <button type="submit" className="btn btn-primary login-submit">
-        Sign in
+      <button type="submit" className="btn btn-primary login-submit" disabled={pending}>
+        {pending ? "Signing in…" : "Sign in"}
       </button>
     </form>
   );

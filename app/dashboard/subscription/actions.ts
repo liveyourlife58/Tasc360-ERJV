@@ -1,146 +1,148 @@
 "use server";
 
+import crypto from "crypto";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { hash } from "bcryptjs";
-import { prisma } from "@/lib/prisma";
-import { requirePermission, PERMISSIONS } from "@/lib/permissions";
+import { createPlatformCheckoutSession, createPlatformPortalSession, updatePlatformSubscriptionQuantity } from "@/lib/stripe-platform";
+import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { ensureDefaultRoles } from "@/lib/roles";
+import { prisma } from "@/lib/prisma";
+import { sendInviteEmail } from "@/lib/email";
 
-export type AddUserState = { error?: string };
+const INVITE_TOKEN_EXPIRY_DAYS = 7;
+
+export async function createSubscriptionCheckout(): Promise<{ error?: string }> {
+  const tenantId = (await headers()).get("x-tenant-id");
+  const userId = (await headers()).get("x-user-id");
+  if (!tenantId || !userId) return { error: "Unauthorized" };
+  const ok = await hasPermission(userId, PERMISSIONS.settingsManage);
+  if (!ok) return { error: "You don't have permission to manage billing." };
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { name: true },
+  });
+  const user = await prisma.user.findFirst({
+    where: { tenantId, isActive: true },
+    select: { email: true, name: true },
+  });
+  const base = process.env.NEXT_PUBLIC_APP_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  const result = await createPlatformCheckoutSession(
+    tenantId,
+    `${base}/dashboard/subscription?success=1`,
+    `${base}/dashboard/subscription?cancel=1`,
+    user?.email ?? "",
+    tenant?.name ?? user?.name ?? ""
+  );
+  if ("error" in result) return { error: result.error };
+  redirect(result.url);
+}
+
+export async function openBillingPortal(): Promise<{ error?: string }> {
+  const tenantId = (await headers()).get("x-tenant-id");
+  const userId = (await headers()).get("x-user-id");
+  if (!tenantId || !userId) return { error: "Unauthorized" };
+  const ok = await hasPermission(userId, PERMISSIONS.settingsManage);
+  if (!ok) return { error: "You don't have permission to manage billing." };
+  const base = process.env.NEXT_PUBLIC_APP_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  const result = await createPlatformPortalSession(
+    tenantId,
+    `${base}/dashboard/subscription`
+  );
+  if ("error" in result) return { error: result.error };
+  redirect(result.url);
+}
 
 export async function addTenantUser(
   tenantId: string,
-  _prev: AddUserState | null,
+  _prev: unknown,
   formData: FormData
-): Promise<AddUserState> {
-  const h = await headers();
-  const userId = h.get("x-user-id");
+): Promise<{ error?: string }> {
+  const userId = (await headers()).get("x-user-id");
   if (!userId) return { error: "Unauthorized" };
-  await requirePermission(userId, PERMISSIONS.usersManage);
-
-  const email = (formData.get("email") as string)?.trim().toLowerCase();
-  const name = (formData.get("name") as string)?.trim() || undefined;
+  const ok = await hasPermission(userId, PERMISSIONS.usersManage);
+  if (!ok) return { error: "You don't have permission to add users." };
+  const email = (formData.get("email") as string)?.trim()?.toLowerCase();
+  const name = (formData.get("name") as string)?.trim() || null;
+  const password = (formData.get("password") as string)?.trim();
+  const inviteOnly = formData.get("inviteOnly") === "1";
   const roleId = (formData.get("roleId") as string)?.trim() || null;
-  const password = formData.get("password") as string;
-
   if (!email) return { error: "Email is required." };
-  if (!password || password.length < 8) return { error: "Password must be at least 8 characters." };
-
-  const tenant = await prisma.tenant.findUnique({
-    where: { id: tenantId },
-    select: { id: true },
-  });
-  if (!tenant) return { error: "Tenant not found." };
-
+  if (!inviteOnly && (!password || password.length < 8)) return { error: "Password must be at least 8 characters (or use Invite by email)." };
   const existing = await prisma.user.findUnique({
     where: { tenantId_email: { tenantId, email } },
-    select: { id: true },
   });
-  if (existing) return { error: "A user with this email already exists in your workspace." };
-
-  const roles = await prisma.role.findMany({
-    where: { tenantId, isActive: true },
-    select: { id: true },
-  });
-  const validRoleIds = new Set(roles.map((r) => r.id));
-  const assignedRoleId = roleId && validRoleIds.has(roleId) ? roleId : null;
-  if (roleId && !assignedRoleId) return { error: "Invalid role." };
-
-  const passwordHash = await hash(password, 10);
-
-  await prisma.user.create({
+  if (existing) return { error: "A user with this email already exists." };
+  const { standardRoleId } = await ensureDefaultRoles(tenantId);
+  const passwordHash = inviteOnly ? null : await hash(password, 10);
+  const user = await prisma.user.create({
     data: {
       tenantId,
       email,
-      name: name || null,
+      name,
       passwordHash,
-      roleId: assignedRoleId,
+      roleId: roleId || standardRoleId,
       isActive: true,
     },
   });
-
-  redirect("/dashboard/subscription");
+  if (inviteOnly) {
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + INVITE_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+    await prisma.passwordResetToken.create({
+      data: { userId: user.id, token, expiresAt },
+    });
+    const base = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+    const setPasswordUrl = `${base}/reset-password?token=${encodeURIComponent(token)}`;
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
+    await sendInviteEmail(email, tenant?.name ?? "Workspace", setPasswordUrl);
+    const { logAuditEvent } = await import("@/lib/audit");
+    await logAuditEvent(tenantId, "user_invited", { invitedUserId: user.id, email }, userId);
+  }
+  await updatePlatformSubscriptionQuantity(tenantId).catch(() => {});
+  return {};
 }
-
-export type UpdateUserState = { error?: string };
 
 export async function updateTenantUser(
   tenantId: string,
   targetUserId: string,
-  _prev: UpdateUserState | null,
+  _prev: unknown,
   formData: FormData
-): Promise<UpdateUserState> {
-  const h = await headers();
-  const currentUserId = h.get("x-user-id");
-  if (!currentUserId) return { error: "Unauthorized" };
-  await requirePermission(currentUserId, PERMISSIONS.usersManage);
-
-  const email = (formData.get("email") as string)?.trim().toLowerCase();
-  const name = (formData.get("name") as string)?.trim() || undefined;
+): Promise<{ error?: string }> {
+  const userId = (await headers()).get("x-user-id");
+  if (!userId) return { error: "Unauthorized" };
+  const ok = await hasPermission(userId, PERMISSIONS.usersManage);
+  if (!ok) return { error: "You don't have permission to edit users." };
+  const email = (formData.get("email") as string)?.trim()?.toLowerCase();
+  const name = (formData.get("name") as string)?.trim() || null;
   const roleId = (formData.get("roleId") as string)?.trim() || null;
-  const newPassword = (formData.get("password") as string)?.trim();
+  const password = (formData.get("password") as string)?.trim();
   const isActive = formData.get("isActive") === "1";
-
   if (!email) return { error: "Email is required." };
-
-  const targetUser = await prisma.user.findFirst({
+  const target = await prisma.user.findFirst({
     where: { id: targetUserId, tenantId },
-    select: { id: true, email: true, roleId: true },
   });
-  if (!targetUser) return { error: "User not found." };
-
-  const roles = await prisma.role.findMany({
-    where: { tenantId, isActive: true },
-    select: { id: true, permissions: true },
-  });
-  const validRoleIds = new Set(roles.map((r) => r.id));
-  const roleHasUsersManage = (role: { permissions: unknown }) =>
-    Array.isArray(role.permissions) &&
-    (role.permissions.includes("*") || role.permissions.includes(PERMISSIONS.usersManage));
-  const assignedRoleId = roleId && validRoleIds.has(roleId) ? roleId : null;
-  if (roleId && !assignedRoleId) return { error: "Invalid role." };
-
-  const isEditingSelf = currentUserId === targetUserId;
-  if (isEditingSelf) {
-    if (assignedRoleId) {
-      const newRole = roles.find((r) => r.id === assignedRoleId);
-      if (newRole && !roleHasUsersManage(newRole))
-        return { error: "You cannot assign yourself a role that cannot manage users (you would lose access)." };
-    }
-  }
-
-  if (email !== targetUser.email) {
-    const existing = await prisma.user.findUnique({
-      where: { tenantId_email: { tenantId, email } },
-      select: { id: true },
-    });
-    if (existing) return { error: "A user with this email already exists in your workspace." };
-  }
-
-  const effectiveActive = isEditingSelf ? true : isActive;
-  const update: {
-    email: string;
-    name?: string | null;
-    roleId: string | null;
-    isActive: boolean;
-    deactivatedAt?: Date | null;
-    passwordHash?: string;
-  } = {
+  if (!target) return { error: "User not found." };
+  const data: { email: string; name: string | null; roleId: string | null; isActive: boolean; deactivatedAt?: Date | null; passwordHash?: string } = {
     email,
-    name: name || null,
-    roleId: assignedRoleId,
-    isActive: effectiveActive,
-    deactivatedAt: effectiveActive ? null : new Date(),
+    name,
+    roleId: roleId || null,
+    isActive,
+    deactivatedAt: isActive ? null : new Date(),
   };
-  if (newPassword.length >= 8) {
-    update.passwordHash = await hash(newPassword, 10);
-  }
-
+  if (password.length >= 8) data.passwordHash = await hash(password, 10);
   await prisma.user.update({
     where: { id: targetUserId },
-    data: update,
+    data,
   });
-
-  redirect("/dashboard/subscription");
+  const { logAuditEvent } = await import("@/lib/audit");
+  await logAuditEvent(tenantId, "user_updated", {
+    targetUserId,
+    email,
+    roleId: data.roleId ?? undefined,
+    isActive: data.isActive,
+  }, userId);
+  await updatePlatformSubscriptionQuantity(tenantId).catch(() => {});
+  return {};
 }

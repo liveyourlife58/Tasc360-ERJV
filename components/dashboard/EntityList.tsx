@@ -30,6 +30,7 @@ export function EntityList({
   fields,
   entities,
   columnSlugs,
+  allowRefund = true,
 }: {
   moduleSlug: string;
   /** Module with settings (for payment/donation column). */
@@ -37,6 +38,8 @@ export function EntityList({
   fields: Field[];
   entities: Entity[];
   columnSlugs?: string[];
+  /** Show Refund button in ticket modal (feature flag). */
+  allowRefund?: boolean;
 }) {
   const columns = columnSlugs?.length
     ? columnSlugs.map((slug) => fields.find((f) => f.slug === slug)).filter(Boolean) as Field[]
@@ -44,6 +47,7 @@ export function EntityList({
   const showAmountColumn = module != null && getModulePaymentType(module) != null;
 
   return (
+    <div className="entity-table-wrap">
     <table className="entity-table">
       <thead>
         <tr>
@@ -57,8 +61,9 @@ export function EntityList({
       <tbody>
         {entities.length === 0 ? (
           <tr>
-            <td colSpan={columns.length + (showAmountColumn ? 1 : 0) + 1} style={{ color: "#6b7280", padding: "2rem" }}>
-              No records yet. Create one to get started.
+            <td colSpan={columns.length + (showAmountColumn ? 1 : 0) + 1} className="empty-state empty-state-inline">
+              <span className="empty-state-icon" aria-hidden>📋</span>
+              <p className="empty-state-message">No records yet. Create one to get started.</p>
             </td>
           </tr>
         ) : (
@@ -96,6 +101,7 @@ export function EntityList({
                         entityId={entity.id}
                         entityTitle={entityTitle}
                         ticketsSold={ticketsSold}
+                        allowRefund={allowRefund}
                       />
                     )}
                   </td>
@@ -115,6 +121,7 @@ export function EntityList({
         )}
       </tbody>
     </table>
+    </div>
   );
 }
 

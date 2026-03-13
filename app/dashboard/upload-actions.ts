@@ -30,16 +30,14 @@ export async function uploadBlob(
   const isSvg = file.type === "image/svg+xml";
 
   try {
-    const { put } = await import("@vercel/blob");
+    const { storageUpload } = await import("@/lib/storage");
 
     if (isSvg) {
       const pathname = `uploads/${tenantId}/${Date.now()}-${safeName}`;
-      const blob = await put(pathname, file, {
-        access: "public",
-        addRandomSuffix: true,
+      const { url } = await storageUpload(pathname, file, {
         contentType: "image/svg+xml",
       });
-      return { url: blob.url };
+      return { url };
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -60,12 +58,10 @@ export async function uploadBlob(
       quality = Math.max(40, quality - 15);
     }
 
-    const blob = await put(basePath, outBuffer, {
-      access: "public",
-      addRandomSuffix: true,
+    const { url } = await storageUpload(basePath, outBuffer, {
       contentType: "image/webp",
     });
-    return { url: blob.url };
+    return { url };
   } catch (err) {
     console.error("Blob upload error:", err);
     return { error: err instanceof Error ? err.message : "Upload failed" };

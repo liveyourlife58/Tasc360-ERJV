@@ -94,6 +94,9 @@ export async function login(
     name: user.name ?? undefined,
   });
 
+  const { logAuditEvent } = await import("@/lib/audit");
+  await logAuditEvent(tenant.id, "auth_login", { email: user.email }, user.id);
+
   const from = (formData.get("from") as string) || "/dashboard";
   const target = from.startsWith("/dashboard") ? from : "/dashboard";
   redirect(target);

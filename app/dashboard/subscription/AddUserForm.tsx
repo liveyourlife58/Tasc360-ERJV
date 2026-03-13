@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useActionState } from "react";
 import { addTenantUser } from "./actions";
 
@@ -10,6 +11,7 @@ export function AddUserForm({
   tenantId: string;
   roles: { id: string; name: string }[];
 }) {
+  const [inviteOnly, setInviteOnly] = useState(false);
   const [state, formAction] = useActionState(
     addTenantUser.bind(null, tenantId),
     null
@@ -17,6 +19,7 @@ export function AddUserForm({
 
   return (
     <form action={formAction} className="subscription-add-user-form">
+      <input type="hidden" name="inviteOnly" value={inviteOnly ? "1" : "0"} />
       <div className="form-row">
         <div className="form-group">
           <label htmlFor="new-user-email">Email</label>
@@ -51,19 +54,30 @@ export function AddUserForm({
             ))}
           </select>
         </div>
-        <div className="form-group">
-          <label htmlFor="new-user-password">Password</label>
+        {!inviteOnly && (
+          <div className="form-group">
+            <label htmlFor="new-user-password">Password</label>
+            <input
+              id="new-user-password"
+              name="password"
+              type="password"
+              minLength={8}
+              autoComplete="new-password"
+              placeholder="Min 8 characters"
+              className="form-control"
+            />
+          </div>
+        )}
+      </div>
+      <div className="form-group">
+        <label className="form-check">
           <input
-            id="new-user-password"
-            name="password"
-            type="password"
-            required
-            minLength={8}
-            autoComplete="new-password"
-            placeholder="Min 8 characters"
-            className="form-control"
+            type="checkbox"
+            checked={inviteOnly}
+            onChange={(e) => setInviteOnly(e.target.checked)}
           />
-        </div>
+          <span>Invite by email (user sets their own password)</span>
+        </label>
       </div>
       {state?.error && (
         <p className="view-error" role="alert">
@@ -71,7 +85,7 @@ export function AddUserForm({
         </p>
       )}
       <button type="submit" className="btn btn-primary">
-        Add user
+        {inviteOnly ? "Send invite" : "Add user"}
       </button>
     </form>
   );

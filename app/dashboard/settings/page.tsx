@@ -1,15 +1,47 @@
+import { Suspense } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { SuccessBanner } from "@/components/dashboard/SuccessBanner";
 import { getDashboardSettings } from "@/lib/dashboard-settings";
+import { getFeatureFlags } from "@/lib/feature-flags";
 import { getModulePaymentType } from "@/lib/module-settings";
-import { updateDashboardSettings } from "../actions";
+import { getTenantConnectConfig } from "@/lib/stripe-connect";
+import { listApiKeys } from "@/lib/api-keys";
+import { getConsentTypes } from "@/lib/consent";
+import { updateDashboardSettings, connectStripeFormAction, sendTestWebhookFormAction, createApiKeyAction, revokeApiKeyFormAction, updateConsentTypesFormAction } from "../actions";
 import { SettingsSectionCards } from "./SettingsSectionCards";
 
-export default async function DashboardSettingsPage() {
+export default async function DashboardSettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ stripe_connect?: string; success?: string }>;
+}) {
   const tenantId = (await headers()).get("x-tenant-id");
   if (!tenantId) redirect("/login");
+
+  const params = await searchParams;
+  if (params.stripe_connect === "return" || params.stripe_connect === "refresh") {
+    const { setConnectOnboardingComplete } = await import("@/lib/stripe-connect");
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const config = tenant ? getTenantConnectConfig(tenant) : null;
+    if (config?.accountId) {
+      try {
+        const Stripe = (await import("stripe")).default;
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+        const account = await stripe.accounts.retrieve(config.accountId);
+        const complete = account.charges_enabled === true;
+        await setConnectOnboardingComplete(tenantId, complete);
+      } catch {
+        await setConnectOnboardingComplete(tenantId, false);
+      }
+    }
+    redirect("/dashboard/settings");
+  }
 
   const [tenant, modules] = await Promise.all([
     prisma.tenant.findUnique({
@@ -35,10 +67,17 @@ export default async function DashboardSettingsPage() {
   const currentSiteName = (site.name as string) ?? "";
   const currentTagline = (site.tagline as string) ?? "";
   const currentHeroImage = (site.heroImage as string) ?? "";
+  const currentFooterHtml = (site.footerHtml as string) ?? "";
+  const currentShowCookieBanner = (site.showCookieBanner as boolean) === true;
+  const currentCookiePolicyUrl = (site.cookiePolicyUrl as string) ?? "";
   const currentMetaTitle = (site.metaTitle as string) ?? "";
   const currentMetaDescription = (site.metaDescription as string) ?? "";
   const currentOgImage = (site.ogImage as string) ?? "";
   const currentCanonicalBaseUrl = (site.canonicalBaseUrl as string) ?? "";
+  const currentCustomDomain = (site.customDomain as string) ?? "";
+  const currentFaviconUrl = (site.faviconUrl as string) ?? "";
+  const waitlistRaw = site.waitlist as { moduleSlug: string; eventFieldSlug: string; emailFieldSlug: string; quantityFieldSlug: string } | undefined;
+  const currentWaitlist = waitlistRaw && waitlistRaw.moduleSlug ? waitlistRaw : null;
   const homepageSidebarModule = (site.homepageSidebarModule as string) ?? "";
   const homepageSidebarFieldSlugs = Array.isArray(site.homepageSidebarFieldSlugs)
     ? (site.homepageSidebarFieldSlugs as string[])
@@ -76,8 +115,36 @@ export default async function DashboardSettingsPage() {
     viewsByModule[m.slug] = views;
   }
 
+  const stripeConnectConfig = tenant ? getTenantConnectConfig(tenant) : null;
+  const currentWebhookUrl = (settingsObj.webhookUrl as string) ?? "";
+  const currentWebhookSecret = (settingsObj.webhookSecret as string) ?? "";
+  const currentWebhookDeliveries = await prisma.webhookDelivery.findMany({
+    where: { tenantId },
+    orderBy: { createdAt: "desc" },
+    take: 30,
+    select: { id: true, event: true, url: true, success: true, statusCode: true, errorMessage: true, createdAt: true },
+  });
+  const currentNotificationEmail = (settingsObj.notificationEmail as string) ?? "";
+  const emailNotif = (settingsObj.emailNotifications as Record<string, boolean>) ?? {};
+  const emailNotificationFlags = {
+    approvalRequested: !!emailNotif.approvalRequested,
+    paymentReceived: !!emailNotif.paymentReceived,
+    paymentFailed: !!emailNotif.paymentFailed,
+    webhookFailed: !!emailNotif.webhookFailed,
+  };
+  const currentEmailFromAddress = (settingsObj.emailFromAddress as string) ?? "";
+  const currentEmailFromName = (settingsObj.emailFromName as string) ?? "";
+  const currentEmailReplyTo = (settingsObj.emailReplyTo as string) ?? "";
+  const currentLocale = (settingsObj.locale as string) ?? "";
+  const featureFlags = getFeatureFlags(tenant?.settings ?? null);
+  const apiKeys = await listApiKeys(tenantId);
+  const currentConsentTypes = getConsentTypes(tenant?.settings as Record<string, unknown> ?? null);
+
   return (
     <div>
+      <Suspense fallback={null}>
+        <SuccessBanner successKey={params.success} />
+      </Suspense>
       <div className="page-header">
         <h1>Dashboard settings</h1>
         <Link href="/dashboard" className="btn btn-secondary">
@@ -98,6 +165,9 @@ export default async function DashboardSettingsPage() {
         currentSiteName={currentSiteName}
         currentTagline={currentTagline}
         currentHeroImage={currentHeroImage}
+        currentFooterHtml={currentFooterHtml}
+        currentShowCookieBanner={currentShowCookieBanner}
+        currentCookiePolicyUrl={currentCookiePolicyUrl}
         homepageSidebarModule={homepageSidebarModule}
         homepageSidebarFieldSlugs={homepageSidebarFieldSlugs}
         currentHomeContent={currentHomeContent}
@@ -106,6 +176,27 @@ export default async function DashboardSettingsPage() {
         currentMetaDescription={currentMetaDescription}
         currentOgImage={currentOgImage}
         currentCanonicalBaseUrl={currentCanonicalBaseUrl}
+        currentCustomDomain={currentCustomDomain}
+        currentFaviconUrl={currentFaviconUrl}
+        currentWaitlist={currentWaitlist}
+        stripeConnectConfig={stripeConnectConfig}
+        connectStripeAction={connectStripeFormAction}
+        currentWebhookUrl={currentWebhookUrl}
+        currentWebhookSecret={currentWebhookSecret}
+        currentWebhookDeliveries={currentWebhookDeliveries}
+        sendTestWebhookAction={sendTestWebhookFormAction}
+        currentNotificationEmail={currentNotificationEmail}
+        emailNotificationFlags={emailNotificationFlags}
+        currentEmailFromAddress={currentEmailFromAddress}
+        currentEmailFromName={currentEmailFromName}
+        currentEmailReplyTo={currentEmailReplyTo}
+        currentLocale={currentLocale}
+        featureFlags={featureFlags}
+        apiKeys={apiKeys}
+        createApiKeyAction={createApiKeyAction.bind(null, tenantId)}
+        revokeApiKeyAction={revokeApiKeyFormAction.bind(null, tenantId)}
+        currentConsentTypes={currentConsentTypes}
+        updateConsentTypesFormAction={updateConsentTypesFormAction}
       />
     </div>
   );
