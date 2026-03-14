@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
+import { getAllowDeveloperSetup } from "@/lib/developer-setup";
 import { isIntegrationEncryptionConfigured } from "@/lib/integration-credentials";
 import { IntegrationList } from "./IntegrationList";
 
@@ -13,6 +14,13 @@ export default async function IntegrationsPage() {
 
   const canManage = await hasPermission(userId, PERMISSIONS.settingsManage);
   if (!canManage) redirect("/dashboard");
+
+  const [tenant, hasDeveloperPermission] = await Promise.all([
+    prisma.tenant.findUnique({ where: { id: tenantId }, select: { settings: true } }),
+    hasPermission(userId, PERMISSIONS.settingsDeveloper),
+  ]);
+  const allowDeveloperSetup = getAllowDeveloperSetup(tenant?.settings ?? null);
+  if (!allowDeveloperSetup || !hasDeveloperPermission) redirect("/dashboard");
 
   const [integrations, encryptionOk] = await Promise.all([
     prisma.integration.findMany({

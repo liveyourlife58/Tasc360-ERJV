@@ -10,6 +10,7 @@ type HomepageFormProps = {
   currentTagline: string;
   currentHomeContent: string;
   updateAction?: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   publicModules?: Record<string, { slug: string; showInNav?: boolean }>;
   modulePaymentTypes?: Record<string, "payment" | "donation" | null>;
   modules?: { id: string; name: string; slug: string }[];
@@ -56,6 +57,7 @@ export function GenerateSiteAiForm({
   currentTagline,
   currentHomeContent,
   updateAction,
+  extraFormFields,
   publicModules = {},
   modulePaymentTypes = {},
   modules = [],
@@ -135,6 +137,9 @@ export function GenerateSiteAiForm({
             </div>
           ) : (
             <form action={saveFormAction} className="settings-form ai-manual-edit-form">
+              {extraFormFields && Object.entries(extraFormFields).map(([k, v]) => (
+                <input key={k} type="hidden" name={k} value={v} />
+              ))}
               <input type="hidden" name="settingsSection" value="customer" />
               <HomepageHiddenInputs
                 publicModules={publicModules}

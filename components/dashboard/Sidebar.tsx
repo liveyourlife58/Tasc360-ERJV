@@ -18,12 +18,16 @@ export async function Sidebar({
   dashboardSettings,
   tenantSlug,
   pathname = "",
+  showDeveloperLinks = false,
+  showPlatformAdminLink = false,
 }: {
   tenantId: string;
   tenant?: TenantStub;
   dashboardSettings?: DashboardSettings;
   tenantSlug?: string | null;
   pathname?: string;
+  showDeveloperLinks?: boolean;
+  showPlatformAdminLink?: boolean;
 }) {
   const modules = await prisma.module.findMany({
     where: { tenantId, isActive: true },
@@ -83,9 +87,11 @@ export async function Sidebar({
             <Link href="/dashboard/finance" className={isActive("/dashboard/finance", pathname) ? "active" : undefined}>
               Finance
             </Link>
-            <Link href="/dashboard/integrations" className={isActive("/dashboard/integrations", pathname) ? "active" : undefined}>
-              Integrations
-            </Link>
+            {showDeveloperLinks && (
+              <Link href="/dashboard/integrations" className={isActive("/dashboard/integrations", pathname) ? "active" : undefined}>
+                Integrations
+              </Link>
+            )}
             <Link href="/dashboard/team" className={isActive("/dashboard/team", pathname) ? "active" : undefined}>
               Team
             </Link>
@@ -95,6 +101,11 @@ export async function Sidebar({
             <Link href="/dashboard/settings" className={isActive("/dashboard/settings", pathname) ? "active" : undefined}>
               Settings
             </Link>
+            {showPlatformAdminLink && (
+              <Link href="/dashboard/platform" className={isActive("/dashboard/platform", pathname) ? "active" : undefined}>
+                Platform admin
+              </Link>
+            )}
           </nav>
         </div>
       </div>

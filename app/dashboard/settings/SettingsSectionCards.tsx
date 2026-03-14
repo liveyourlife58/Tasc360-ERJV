@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useActionState } from "react";
+import { DeveloperSetupToggle } from "./DeveloperSetupToggle";
 import { GenerateSiteAiForm } from "./GenerateSiteAiForm";
 import { BlobUploadInput } from "@/components/dashboard/BlobUploadInput";
 
@@ -52,9 +53,23 @@ const SECTION_TITLES: Record<SectionId, string> = {
   "consent-types": "Consent types",
 };
 
+/** Renders hidden inputs for platform admin (e.g. targetTenantId). Safe to pass undefined. */
+function FormExtraFields({ fields }: { fields?: Record<string, string> }) {
+  if (!fields || Object.keys(fields).length === 0) return null;
+  return (
+    <>
+      {Object.entries(fields).map(([k, v]) => (
+        <input key={k} type="hidden" name={k} value={v} />
+      ))}
+    </>
+  );
+}
+
 type Props = {
   tenantId: string;
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  /** When set (e.g. platform admin editing another tenant), these are added to every form so the action receives them. */
+  extraFormFields?: Record<string, string>;
   branding?: Branding;
   home?: Home;
   sidebarOrder?: string[];
@@ -107,7 +122,13 @@ type Props = {
   revokeApiKeyAction?: (formData: FormData) => Promise<void>;
   currentConsentTypes?: string[];
   updateConsentTypesFormAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
+  showDeveloperSections?: boolean;
+  isPlatformAdmin?: boolean;
+  allowDeveloperSetup?: boolean;
+  updateAllowDeveloperSetupFormAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
 };
+
+const DEVELOPER_SECTION_IDS: SectionId[] = ["backend-api", "backend-webhooks"];
 
 export function SettingsSectionCards(props: Props) {
   const [openSection, setOpenSection] = useState<SectionId | null>(null);
@@ -163,7 +184,7 @@ export function SettingsSectionCards(props: Props) {
     { id: "customer-footer", title: "Footer", desc: "Custom footer HTML for the customer site" },
     { id: "customer-cookie-banner", title: "Cookie banner", desc: "Show a cookie consent banner on the customer site" },
   ];
-  const backendSections: { id: SectionId; title: string; desc: string }[] = [
+  const allBackendSections: { id: SectionId; title: string; desc: string }[] = [
     { id: "backend-branding", title: "Branding", desc: "Dashboard name, logo, primary color" },
     { id: "backend-home", title: "Default home", desc: "Where to go after login" },
     { id: "backend-payments", title: "Payments (Stripe)", desc: "Accept payments from your customers" },
@@ -174,6 +195,11 @@ export function SettingsSectionCards(props: Props) {
     { id: "email-notifications", title: "Email notifications", desc: "Opt-in emails for approvals, payments, webhook failures" },
     { id: "consent-types", title: "Consent types", desc: "GDPR-style consent type labels (e.g. marketing, essential). Manage records on Consent page." },
   ];
+  const showDeveloperSections = props.showDeveloperSections ?? false;
+  const backendSections = showDeveloperSections
+    ? allBackendSections
+    : allBackendSections.filter((s) => !DEVELOPER_SECTION_IDS.includes(s.id));
+  const extraFormFields = props.extraFormFields;
 
   return (
     <>
@@ -195,6 +221,13 @@ export function SettingsSectionCards(props: Props) {
       </div>
       <div className="settings-cards-group">
         <h2 className="settings-cards-group-title">Dashboard & backend</h2>
+        {props.isPlatformAdmin && props.updateAllowDeveloperSetupFormAction && (
+          <DeveloperSetupToggle
+            allowDeveloperSetup={props.allowDeveloperSetup ?? false}
+            formAction={props.updateAllowDeveloperSetupFormAction}
+            extraFormFields={extraFormFields}
+          />
+        )}
         <div className="settings-cards settings-subcards">
           {backendSections.map(({ id, title, desc }) => (
             <button
@@ -221,6 +254,7 @@ export function SettingsSectionCards(props: Props) {
             onClose={() => setOpenSection(null)}
             tenantId={tenantId}
             updateAction={updateAction}
+            extraFormFields={extraFormFields}
             branding={branding}
             home={home}
             homeModuleSlug={homeModuleSlug}
@@ -314,6 +348,7 @@ function SectionModalContent(
     onClose: () => void;
     tenantId: string;
     updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+    extraFormFields?: Record<string, string>;
     branding?: Branding;
     home?: Home;
     homeModuleSlug: string;
@@ -366,6 +401,7 @@ function SectionModalContent(
         <GenerateSiteAiForm
           tenantId={props.tenantId}
           updateAction={props.updateAction}
+          extraFormFields={props.extraFormFields}
           currentSiteName={props.currentSiteName}
           currentTagline={props.currentTagline}
           currentHomeContent={props.currentHomeContent}
@@ -401,6 +437,7 @@ function SectionModalContent(
     return (
       <CustomerFooterForm
         updateAction={props.updateAction}
+        extraFormFields={props.extraFormFields}
         currentFooterHtml={props.currentFooterHtml ?? ""}
       />
     );
@@ -427,6 +464,7 @@ function SectionModalContent(
     return (
       <BackendApiForm
         {...props}
+        extraFormFields={props.extraFormFields}
         apiKeys={props.apiKeys ?? []}
         createApiKeyAction={props.createApiKeyAction}
         revokeApiKeyAction={props.revokeApiKeyAction}
@@ -437,6 +475,7 @@ function SectionModalContent(
     return (
       <BackendFeaturesForm
         updateAction={props.updateAction}
+        extraFormFields={props.extraFormFields}
         myOrders={props.featureFlags?.myOrders ?? true}
         refunds={props.featureFlags?.refunds ?? true}
       />
@@ -446,6 +485,7 @@ function SectionModalContent(
     return (
       <BackendWebhooksForm
         updateAction={props.updateAction}
+        extraFormFields={props.extraFormFields}
         currentWebhookUrl={props.currentWebhookUrl ?? ""}
         currentWebhookSecret={props.currentWebhookSecret ?? ""}
         currentWebhookDeliveries={props.currentWebhookDeliveries ?? []}
@@ -465,6 +505,7 @@ function SectionModalContent(
     return (
       <EmailNotificationsForm
         updateAction={props.updateAction}
+        extraFormFields={props.extraFormFields}
         currentNotificationEmail={props.currentNotificationEmail ?? ""}
         approvalRequested={props.emailNotificationFlags?.approvalRequested ?? false}
         paymentReceived={props.emailNotificationFlags?.paymentReceived ?? false}
@@ -480,6 +521,7 @@ function SectionModalContent(
     return (
       <ConsentTypesForm
         updateConsentTypesFormAction={props.updateConsentTypesFormAction!}
+        extraFormFields={props.extraFormFields}
         currentConsentTypes={props.currentConsentTypes ?? []}
       />
     );
@@ -489,6 +531,7 @@ function SectionModalContent(
 
 function CustomerContactForm({
   updateAction,
+  extraFormFields,
   publicModules,
   modulePaymentTypes,
   modules,
@@ -498,6 +541,7 @@ function CustomerContactForm({
   contactFields,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   publicModules: Record<string, { slug: string; showInNav?: boolean }>;
   modulePaymentTypes: Record<string, "payment" | "donation" | null>;
   modules: { id: string; name: string; slug: string }[];
@@ -510,6 +554,7 @@ function CustomerContactForm({
   const c = contactFields;
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="customer" />
       <CustomerHiddenInputs
         publicModules={publicModules}
@@ -570,6 +615,7 @@ function CustomerContactForm({
 function CustomerHeroForm({
   tenantId,
   updateAction,
+  extraFormFields,
   publicModules,
   modulePaymentTypes,
   modules,
@@ -579,6 +625,7 @@ function CustomerHeroForm({
 }: {
   tenantId: string;
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   publicModules: Record<string, { slug: string; showInNav?: boolean }>;
   modulePaymentTypes: Record<string, "payment" | "donation" | null>;
   modules: { id: string; name: string; slug: string }[];
@@ -589,6 +636,7 @@ function CustomerHeroForm({
   const [state, formAction] = useActionState(updateAction, null);
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="customer" />
       <CustomerHiddenInputs
         publicModules={publicModules}
@@ -618,6 +666,7 @@ function CustomerHeroForm({
 function CustomerSidebarForm({
   tenantId,
   updateAction,
+  extraFormFields,
   publicModules,
   modulePaymentTypes,
   modules,
@@ -627,6 +676,7 @@ function CustomerSidebarForm({
 }: {
   tenantId: string;
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   publicModules: Record<string, { slug: string; showInNav?: boolean }>;
   modulePaymentTypes: Record<string, "payment" | "donation" | null>;
   modules: { id: string; name: string; slug: string; fields?: { id: string; slug: string; name: string }[] }[];
@@ -641,6 +691,7 @@ function CustomerSidebarForm({
   const selectedFieldSlugs = new Set(homepageSidebarFieldSlugs ?? []);
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="customer" />
       <CustomerHiddenInputs
         publicModules={publicModules}
@@ -741,6 +792,7 @@ function CustomerModulesForm({
 
 function CustomerSeoForm({
   updateAction,
+  extraFormFields,
   publicModules,
   modulePaymentTypes,
   modules,
@@ -755,6 +807,7 @@ function CustomerSeoForm({
   currentFaviconUrl,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   publicModules: Record<string, { slug: string; showInNav?: boolean }>;
   modulePaymentTypes: Record<string, "payment" | "donation" | null>;
   modules: { id: string; name: string; slug: string }[];
@@ -772,6 +825,7 @@ function CustomerSeoForm({
   const customDomain = currentCustomDomain ?? "";
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="customer" />
       <CustomerHiddenInputs
         publicModules={publicModules}
@@ -819,10 +873,12 @@ function CustomerSeoForm({
 
 function CustomerWaitlistForm({
   updateAction,
+  extraFormFields,
   modules = [],
   currentWaitlist = null,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   modules?: { id: string; name: string; slug: string; fields?: { id: string; slug: string; name: string }[] }[];
   currentWaitlist?: { moduleSlug: string; eventFieldSlug: string; emailFieldSlug: string; quantityFieldSlug: string } | null;
 }) {
@@ -830,6 +886,7 @@ function CustomerWaitlistForm({
   const wl = currentWaitlist ?? { moduleSlug: "", eventFieldSlug: "", emailFieldSlug: "", quantityFieldSlug: "" };
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="customer" />
       <p className="settings-hint" style={{ marginBottom: "1rem" }}>
         When an event or ticket type is sold out, visitors can join a waitlist. Create a module (e.g. &quot;Waitlist entries&quot;) with a relation to your events module, plus email and quantity fields. Enter the module and field slugs below.
@@ -863,14 +920,17 @@ function CustomerWaitlistForm({
 
 function CustomerFooterForm({
   updateAction,
+  extraFormFields,
   currentFooterHtml,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   currentFooterHtml: string;
 }) {
   const [state, formAction] = useActionState(updateAction, null);
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="customer" />
       <div className="form-group">
         <label htmlFor="footerHtml">Footer HTML (optional)</label>
@@ -892,16 +952,19 @@ function CustomerFooterForm({
 
 function CustomerCookieBannerForm({
   updateAction,
+  extraFormFields,
   currentShowCookieBanner,
   currentCookiePolicyUrl,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   currentShowCookieBanner: boolean;
   currentCookiePolicyUrl: string;
 }) {
   const [state, formAction] = useActionState(updateAction, null);
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="customer" />
       <input type="hidden" name="cookieBannerSection" value="1" />
       <div className="form-group">
@@ -979,6 +1042,7 @@ function CustomerHiddenInputs({
 
 function BackendBrandingForm({
   updateAction,
+  extraFormFields,
   branding,
   home,
   homeModuleSlug,
@@ -987,6 +1051,7 @@ function BackendBrandingForm({
   modules,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   branding?: Branding;
   home?: Home;
   homeModuleSlug: string;
@@ -997,6 +1062,7 @@ function BackendBrandingForm({
   const [state, formAction] = useActionState(updateAction, null);
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="backend" />
       <input type="hidden" name="sidebarOrder" value={JSON.stringify(sidebarOrder ?? modules.map((m) => m.slug))} />
       <input type="hidden" name="homeType" value={home?.type ?? "none"} />
@@ -1024,6 +1090,7 @@ function BackendBrandingForm({
 
 function BackendHomeForm({
   updateAction,
+  extraFormFields,
   branding,
   home,
   homeModuleSlug,
@@ -1033,6 +1100,7 @@ function BackendHomeForm({
   viewsByModule,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   branding?: Branding;
   home?: Home;
   homeModuleSlug: string;
@@ -1044,6 +1112,7 @@ function BackendHomeForm({
   const [state, formAction] = useActionState(updateAction, null);
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="backend" />
       <input type="hidden" name="sidebarOrder" value={JSON.stringify(sidebarOrder ?? modules.map((m) => m.slug))} />
       <input type="hidden" name="brandingName" value={branding?.name ?? ""} />
@@ -1113,12 +1182,14 @@ function BackendPaymentsForm({
 
 function BackendWebhooksForm({
   updateAction,
+  extraFormFields,
   currentWebhookUrl = "",
   currentWebhookSecret = "",
   currentWebhookDeliveries = [],
   sendTestWebhookAction,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   currentWebhookUrl: string;
   currentWebhookSecret: string;
   currentWebhookDeliveries?: { id: string; event: string; url: string; success: boolean; statusCode: number | null; errorMessage: string | null; createdAt: Date }[];
@@ -1129,6 +1200,7 @@ function BackendWebhooksForm({
   return (
     <div className="settings-form">
       <form action={formAction}>
+        <FormExtraFields fields={extraFormFields} />
         <input type="hidden" name="settingsSection" value="backend-webhooks" />
         <p className="settings-hint" style={{ marginBottom: "1rem" }}>
           When entity create/update/delete events occur, a POST request is sent to your URL with a JSON payload. Include X-Webhook-Event and, if set, X-Webhook-Signature (HMAC-SHA256 of the body).
@@ -1215,14 +1287,17 @@ const LOCALE_OPTIONS = [
 
 function BackendLocaleForm({
   updateAction,
+  extraFormFields,
   currentLocale,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   currentLocale: string;
 }) {
   const [state, formAction] = useActionState(updateAction, null);
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="backend-locale" />
       <p className="settings-hint" style={{ marginBottom: "1rem" }}>
         Date and number format for the dashboard. Leave default to use browser locale.
@@ -1245,16 +1320,19 @@ function BackendLocaleForm({
 
 function BackendFeaturesForm({
   updateAction,
+  extraFormFields,
   myOrders,
   refunds,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   myOrders: boolean;
   refunds: boolean;
 }) {
   const [state, formAction] = useActionState(updateAction, null);
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="backend-features" />
       <p className="settings-hint" style={{ marginBottom: "1rem" }}>
         Turn customer-facing features on or off. Disabled features are hidden or blocked.
@@ -1281,6 +1359,7 @@ function BackendFeaturesForm({
 
 function EmailNotificationsForm({
   updateAction,
+  extraFormFields,
   currentNotificationEmail,
   approvalRequested,
   paymentReceived,
@@ -1291,6 +1370,7 @@ function EmailNotificationsForm({
   currentEmailReplyTo,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   currentNotificationEmail: string;
   approvalRequested: boolean;
   paymentReceived: boolean;
@@ -1303,6 +1383,7 @@ function EmailNotificationsForm({
   const [state, formAction] = useActionState(updateAction, null);
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="email-notifications" />
       <p className="settings-hint" style={{ marginBottom: "1rem" }}>
         Optional emails via Resend. Set notification email and check the events you want to be notified about.
@@ -1383,14 +1464,17 @@ function EmailNotificationsForm({
 
 function ConsentTypesForm({
   updateConsentTypesFormAction,
+  extraFormFields,
   currentConsentTypes,
 }: {
   updateConsentTypesFormAction: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
+  extraFormFields?: Record<string, string>;
   currentConsentTypes: string[];
 }) {
   const [state, formAction] = useActionState(updateConsentTypesFormAction, null as { error?: string } | null);
   return (
     <form action={formAction} className="settings-form">
+      <FormExtraFields fields={extraFormFields} />
       <div className="form-group">
         <label htmlFor="consent-types-input">Consent types (comma-separated)</label>
         <input
@@ -1411,6 +1495,7 @@ function ConsentTypesForm({
 
 function BackendApiForm({
   updateAction,
+  extraFormFields,
   branding,
   home,
   homeModuleSlug,
@@ -1422,6 +1507,7 @@ function BackendApiForm({
   revokeApiKeyAction,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   branding?: Branding;
   home?: Home;
   homeModuleSlug: string;
@@ -1458,6 +1544,7 @@ function BackendApiForm({
                     <td>{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : "—"}</td>
                     <td>
                       <form action={revokeApiKeyAction} style={{ display: "inline" }}>
+                        <FormExtraFields fields={extraFormFields} />
                         <input type="hidden" name="apiKeyId" value={k.id} />
                         <button type="submit" className="btn btn-secondary" style={{ fontSize: "0.8125rem" }} onClick={(e) => { if (!confirm("Revoke this key? It will stop working immediately.")) e.preventDefault(); }}>Revoke</button>
                       </form>
@@ -1468,6 +1555,7 @@ function BackendApiForm({
             </table>
           )}
           <form action={createFormAction} style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "0.5rem", marginBottom: "0.5rem" }}>
+            <FormExtraFields fields={extraFormFields} />
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label htmlFor="apiKeyName">New key name</label>
               <input id="apiKeyName" name="apiKeyName" type="text" placeholder="e.g. Production" className="form-control" style={{ maxWidth: "200px" }} />
@@ -1486,6 +1574,7 @@ function BackendApiForm({
         <h3 className="settings-subheading">Legacy API key (optional)</h3>
         <p className="settings-hint">Single key stored in settings. Prefer creating keys above so you can revoke them. Leave blank to keep the current value.</p>
         <form action={backendFormAction} className="settings-form">
+          <FormExtraFields fields={extraFormFields} />
           <input type="hidden" name="settingsSection" value="backend" />
           <input type="hidden" name="sidebarOrder" value={JSON.stringify(sidebarOrder ?? modules.map((m) => m.slug))} />
           <input type="hidden" name="brandingName" value={branding?.name ?? ""} />

@@ -216,6 +216,18 @@ The app validates required env at startup (via `instrumentation.ts` and `lib/env
 - **security.txt:** `GET /.well-known/security.txt` returns a security policy (RFC 9116). Update the `Contact` and `Expires` values in `app/well-known/security.txt/route.ts` for your deployment.
 - **Deploy verification:** After deploy, verify with `curl https://your-app/api/health` and `curl https://your-app/api/ready`.
 
+### Scheduled jobs (cron)
+
+Failed webhook deliveries are retried with backoff (1m, 5m, 30m, 60m). You must call the retry endpoint on a schedule so pending retries are processed.
+
+| Job | URL | Method | Schedule | Auth |
+|-----|-----|--------|----------|------|
+| Webhook retries | `/api/cron/webhook-retries` | GET | Every 5 minutes (or similar) | `Authorization: Bearer <CRON_SECRET>` |
+
+Set `CRON_SECRET` in your environment. Trigger the URL using [Vercel Cron](https://vercel.com/docs/cron-jobs), a separate scheduler (e.g. GitHub Actions, cron on a server), or any HTTP client that can call your app on an interval. If `CRON_SECRET` is missing or the header is wrong, the endpoint returns 401.
+
+See [docs/LAUNCH_SETUP.md](docs/LAUNCH_SETUP.md) for the same in the developer-responsibilities table.
+
 ### Dashboard behaviour
 
 - **Clone entity**: On any entity edit page, **Clone** creates a new entity in the same module with the same data and metadata and syncs relationship fields; you are redirected to the new record.
@@ -245,6 +257,8 @@ Key docs in `docs/`:
 | [ACTIVITY_EVENT_TYPES.md](docs/ACTIVITY_EVENT_TYPES.md) | Event types in the Activity / audit log (dashboard and API). |
 | [USER_GUIDE.md](docs/USER_GUIDE.md) | End-user guide: how to use the dashboard and public site (also shown in-app at **Help**). |
 | [PERMISSIONS.md](docs/PERMISSIONS.md) | Roles and permissions: list of permissions, what they gate, default roles (admin/standard). |
+| [PROVIDER.md](docs/PROVIDER.md) | Platform admin: how to enable “Developer setup” per tenant, Platform admin page, audit. |
+| [OPERATIONS.md](docs/OPERATIONS.md) | Secrets rotation (CRON_SECRET, INTEGRATION_ENCRYPTION_KEY), scheduled jobs, backups. |
 | [QBO_INTEGRATION_READINESS.md](docs/QBO_INTEGRATION_READINESS.md) | Prepared for QuickBooks Online: Integration table, external ID convention, mapping plan. |
 
 ## Seed (optional)
@@ -253,7 +267,7 @@ Run `npm run db:seed` to create a demo tenant (slug `demo`), an admin role, and 
 
 ## E2E smoke tests
 
-Run `npm run test:e2e` to execute Playwright smoke tests (health, ready, optional tenant API). Start the app first (`npm run dev`) or let Playwright start it via `webServer` in `playwright.config.ts`. For the optional tenant API test, set `E2E_TENANT_SLUG` and `E2E_API_KEY` in the environment. In CI, run `npm run test:e2e:ci` after starting the app.
+Run `npm run test:e2e` to execute Playwright smoke tests (health, ready, optional tenant API). Start the app first (`npm run dev`) or let Playwright start it via `webServer` in `playwright.config.ts`. For the optional tenant API test, set `E2E_TENANT_SLUG` and `E2E_API_KEY` in the environment. To run the **tenant isolation** test (assert that an API key for tenant A cannot access tenant B’s data), set `E2E_TENANT_ISOLATION_A_KEY` (API key for tenant A) and `E2E_TENANT_ISOLATION_B_SLUG` (slug of a different tenant B); the test expects 401 when calling tenant B’s API with tenant A’s key. In CI, run `npm run test:e2e:ci` after starting the app.
 
 ## References
 

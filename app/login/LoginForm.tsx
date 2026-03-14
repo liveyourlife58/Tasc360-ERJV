@@ -31,18 +31,11 @@ export function LoginForm({
         setPending(false);
         return;
       }
-      if (res.status >= 300 && res.status < 400) {
-        const location = res.headers.get("Location");
-        if (location) {
-          window.location.href = location;
-          return;
-        }
-      }
       const body = (await res.json().catch(() => null)) as LoginState | null;
       if (body?.error) setError(body.error);
-      else if (res.ok) {
-        const location = res.headers.get("Location");
-        if (location) window.location.href = location;
+      else if (res.ok && (body?.redirect ?? res.headers.get("Location"))) {
+        window.location.href = body?.redirect ?? res.headers.get("Location") ?? "/dashboard";
+        return;
       }
     } catch {
       setError("Something went wrong. Please try again.");

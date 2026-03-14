@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getDashboardSettings } from "@/lib/dashboard-settings";
 import { getSubscriptionGraceDays } from "@/lib/app-config";
+import { getAllowDeveloperSetup, isPlatformAdmin } from "@/lib/developer-setup";
+import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { DashboardSidebarToggle } from "@/components/dashboard/DashboardSidebarToggle";
 
@@ -17,11 +19,18 @@ export default async function DashboardLayout({
   const pathname = h.get("x-pathname") ?? "";
   if (!tenantId || !userId) redirect("/login");
 
-  const tenant = await prisma.tenant.findUnique({
-    where: { id: tenantId },
-    select: { id: true, name: true, slug: true, settings: true, subscriptionStatus: true, subscriptionCurrentPeriodEnd: true },
-  });
+  const [tenant, user, hasDeveloperPermission] = await Promise.all([
+    prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, name: true, slug: true, settings: true, subscriptionStatus: true, subscriptionCurrentPeriodEnd: true },
+    }),
+    prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+    hasPermission(userId, PERMISSIONS.settingsDeveloper),
+  ]);
   const dashboardSettings = getDashboardSettings(tenant?.settings ?? null);
+  const allowDeveloperSetup = getAllowDeveloperSetup(tenant?.settings ?? null);
+  const showDeveloperLinks = allowDeveloperSetup && hasDeveloperPermission;
+  const showPlatformAdminLink = isPlatformAdmin(user?.email ?? null);
   const primaryColor =
     dashboardSettings.branding?.primaryColor ?? "#4f46e5";
 
@@ -49,7 +58,7 @@ export default async function DashboardLayout({
       style={{ ["--dashboard-primary" as string]: primaryColor }}
     >
       <a href="#dashboard-main-content" className="skip-link">Skip to main content</a>
-      <Sidebar tenantId={tenantId} tenant={tenant} dashboardSettings={dashboardSettings} tenantSlug={tenant?.slug} pathname={pathname} />
+      <Sidebar tenantId={tenantId} tenant={tenant} dashboardSettings={dashboardSettings} tenantSlug={tenant?.slug} pathname={pathname} showDeveloperLinks={showDeveloperLinks} showPlatformAdminLink={showPlatformAdminLink} />
       <main id="dashboard-main-content" className="dashboard-main" tabIndex={-1}>
         <DashboardSidebarToggle />
         {isPastDueWithGrace && (

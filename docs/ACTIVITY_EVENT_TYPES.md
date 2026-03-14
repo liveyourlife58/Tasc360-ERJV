@@ -22,6 +22,8 @@ The **Activity** log (Dashboard → Activity) and audit exports show records fro
 | **integration_sync_failed** | Sync job failed (e.g. API error) | `{ provider, error?, direction? }` | null (system) |
 | **journal_entry_created** | User creates a journal entry (Finance) | `{ journalEntryId, entryDate, lineCount }` | User who created |
 | **fiscal_period_closed** | User closes a fiscal period (Finance) | `{ fiscalPeriodId, periodStart, periodEnd }` | User who closed |
+| **developer_setup_enabled** | Platform admin enables “Developer setup” for the tenant (API keys, webhooks, Integrations visible) | `{ enabled: true }` | Platform admin |
+| **developer_setup_disabled** | Platform admin disables “Developer setup” for the tenant | `{ enabled: false }` | Platform admin |
 
 ## Filtering
 

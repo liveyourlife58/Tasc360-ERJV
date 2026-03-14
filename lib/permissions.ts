@@ -6,6 +6,7 @@ export const PERMISSIONS = {
   modulesManage: "modules:manage",
   viewsManage: "views:manage",
   settingsManage: "settings:manage",
+  settingsDeveloper: "settings:developer",
   usersManage: "users:manage",
 } as const;
 
@@ -18,6 +19,7 @@ export const PERMISSION_LABELS: Record<string, string> = {
   [PERMISSIONS.modulesManage]: "Manage modules & fields",
   [PERMISSIONS.viewsManage]: "Manage views",
   [PERMISSIONS.settingsManage]: "Manage settings & billing",
+  [PERMISSIONS.settingsDeveloper]: "Manage API keys, webhooks & integrations",
   [PERMISSIONS.usersManage]: "Manage users & roles",
   "*": "Full access (admin)",
 };

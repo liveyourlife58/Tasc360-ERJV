@@ -1,25 +1,39 @@
 import { headers } from "next/headers";
-import { notFound } from "next/navigation";
+import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { isPlatformAdmin } from "@/lib/developer-setup";
 import {
-  addFieldToModule,
-  removeFieldFromModule,
-  reorderFieldInModule,
-  updateFieldInModule,
+  addFieldToModuleAsPlatformAdminFormAction,
+  updateFieldInModuleAsPlatformAdminFormAction,
+  removeFieldFromModuleAsPlatformAdminFormAction,
+  reorderFieldInModuleAsPlatformAdminFormAction,
 } from "@/app/dashboard/actions";
 import { AddFieldForm } from "@/components/dashboard/AddFieldForm";
 import { FieldListRow } from "@/components/dashboard/FieldListRow";
 
-export default async function ModuleFieldsPage({
+export default async function PlatformTenantModuleFieldsPage({
   params,
 }: {
-  params: Promise<{ moduleSlug: string }>;
+  params: Promise<{ tenantId: string; moduleSlug: string }>;
 }) {
-  const { moduleSlug } = await params;
-  const tenantId = (await headers()).get("x-tenant-id");
-  if (!tenantId) notFound();
+  const h = await headers();
+  const userId = h.get("x-user-id");
+  if (!userId) redirect("/login");
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+  if (!isPlatformAdmin(user?.email ?? null)) redirect("/dashboard");
+
+  const { tenantId, moduleSlug } = await params;
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { name: true, slug: true },
+  });
+  if (!tenant) notFound();
 
   const module_ = await prisma.module.findFirst({
     where: { tenantId, slug: moduleSlug, isActive: true },
@@ -43,23 +57,31 @@ export default async function ModuleFieldsPage({
     })
   );
 
+  const extraFormFields = { targetTenantId: tenantId, moduleSlug };
+
   return (
     <div>
       <div className="page-header">
         <h1>Manage fields: {module_.name}</h1>
-        <Link href={`/dashboard/m/${moduleSlug}`} className="btn btn-secondary">
-          Back to {module_.name}
-        </Link>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <Link href={`/dashboard/platform/tenant/${tenantId}/modules`} className="btn btn-secondary">
+            Back to modules
+          </Link>
+          <Link href={`/dashboard/platform/tenant/${tenantId}`} className="btn btn-secondary">
+            Tenant settings
+          </Link>
+        </div>
       </div>
       <p className="settings-intro" style={{ marginBottom: "1.5rem" }}>
-        Add, reorder, or remove fields. You cannot remove a field if any record has a value for it.
+        Tenant: <strong>{tenant.name ?? tenant.slug}</strong>. Add, reorder, or remove fields. You cannot remove a field if any record has a value for it.
       </p>
 
       <section style={{ marginBottom: "2rem" }}>
         <h2 className="subscription-subheading">Add field</h2>
         <AddFieldForm
           moduleSlug={moduleSlug}
-          action={addFieldToModule.bind(null, moduleSlug)}
+          action={addFieldToModuleAsPlatformAdminFormAction}
+          extraFormFields={extraFormFields}
           otherModuleSlugs={otherModules.map((m) => ({ slug: m.slug, name: m.name }))}
         />
       </section>
@@ -83,18 +105,19 @@ export default async function ModuleFieldsPage({
             </thead>
             <tbody>
               {module_.fields.map((field, index) => (
-              <FieldListRow
-                key={field.id}
-                moduleSlug={moduleSlug}
-                field={field}
-                isFirst={index === 0}
-                isLast={index === module_.fields.length - 1}
-                removeAction={removeFieldFromModule}
-                reorderAction={reorderFieldInModule}
-                updateAction={updateFieldInModule}
-                fieldRecordCount={recordCountByFieldId.get(field.id) ?? 0}
-                otherModuleSlugs={otherModules.map((m) => ({ slug: m.slug, name: m.name }))}
-              />
+                <FieldListRow
+                  key={field.id}
+                  moduleSlug={moduleSlug}
+                  field={field}
+                  isFirst={index === 0}
+                  isLast={index === module_.fields.length - 1}
+                  removeFormAction={removeFieldFromModuleAsPlatformAdminFormAction}
+                  reorderFormAction={reorderFieldInModuleAsPlatformAdminFormAction}
+                  updateFormAction={updateFieldInModuleAsPlatformAdminFormAction}
+                  extraFormFields={extraFormFields}
+                  fieldRecordCount={recordCountByFieldId.get(field.id) ?? 0}
+                  otherModuleSlugs={otherModules.map((m) => ({ slug: m.slug, name: m.name }))}
+                />
               ))}
             </tbody>
           </table>

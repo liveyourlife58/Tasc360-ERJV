@@ -1243,12 +1243,12 @@ export async function connectStripeFormAction(_prev: unknown, _formData: FormDat
 // Tenant dashboard settings (Phase 2)
 // -----------------------------------------------------------------------------
 
-export async function updateDashboardSettings(
+/** Internal: apply formData to tenant settings and save. Option skipDeveloperGate allows API/webhook changes without tenant allowDeveloperSetup. */
+async function applyTenantSettingsUpdate(
   tenantId: string,
-  _prev: unknown,
-  formData: FormData
-) {
-  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  formData: FormData,
+  options: { skipDeveloperGate?: boolean }
+): Promise<void> {
   const prisma = (await import("@/lib/prisma")).prisma;
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
@@ -1256,6 +1256,17 @@ export async function updateDashboardSettings(
   });
   const settings = (tenant?.settings as Record<string, unknown>) ?? {};
   const section = (formData.get("settingsSection") as string) || null;
+
+  const { getAllowDeveloperSetup } = await import("@/lib/developer-setup");
+  const allowDeveloperSetup = getAllowDeveloperSetup(tenant?.settings ?? null);
+  const h = await headers();
+  const userId = h.get("x-user-id");
+  const hasDeveloper = userId ? await (await import("@/lib/permissions")).hasPermission(userId, PERMISSIONS.settingsDeveloper) : false;
+  if (!options.skipDeveloperGate) {
+    if (section === "backend-webhooks" && (!allowDeveloperSetup || !hasDeveloper)) {
+      throw new Error("Developer setup is not enabled or you don't have permission to change webhooks.");
+    }
+  }
 
   if (section !== "customer") {
     const dashboard = (settings.dashboard as Record<string, unknown>) ?? {};
@@ -1289,6 +1300,9 @@ export async function updateDashboardSettings(
     settings.dashboard = Object.keys(dashboard).length ? dashboard : undefined;
     const apiKeyRaw = (formData.get("apiKey") as string)?.trim();
     if (apiKeyRaw !== undefined && apiKeyRaw !== "") {
+      if (!options.skipDeveloperGate && (!allowDeveloperSetup || !hasDeveloper)) {
+        throw new Error("Developer setup is not enabled or you don't have permission to set the API key.");
+      }
       settings.apiKey = apiKeyRaw;
     }
   }
@@ -1453,7 +1467,152 @@ export async function updateDashboardSettings(
 
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/settings");
+  revalidatePath(`/dashboard/platform/tenant/${tenantId}`);
+}
+
+export async function updateDashboardSettings(
+  tenantId: string,
+  _prev: unknown,
+  formData: FormData
+) {
+  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  await applyTenantSettingsUpdate(tenantId, formData, {});
   redirect("/dashboard/settings?success=saved");
+}
+
+/** Platform admin only: update another tenant's settings. formData must include targetTenantId. */
+export async function updateTenantSettingsAsPlatformAdmin(
+  _prev: unknown,
+  formData: FormData
+) {
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  if (!targetTenantId) {
+    throw new Error("Missing target tenant.");
+  }
+  const h = await headers();
+  const userId = h.get("x-user-id");
+  if (!userId) redirect("/login");
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+  const { isPlatformAdmin } = await import("@/lib/developer-setup");
+  if (!isPlatformAdmin(user?.email ?? null)) {
+    throw new Error("Only platform admins can edit tenant settings.");
+  }
+  await applyTenantSettingsUpdate(targetTenantId, formData, { skipDeveloperGate: true });
+  redirect(`/dashboard/platform/tenant/${targetTenantId}?success=saved`);
+}
+
+/** Toggle "Allow developer setup" for this tenant. Only platform admins (PLATFORM_ADMIN_EMAILS) can call this. */
+export async function updateAllowDeveloperSetup(
+  _tenantId: string,
+  enabled: boolean
+): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  const h = await headers();
+  const userId = h.get("x-user-id");
+  const tenantId = h.get("x-tenant-id");
+  if (!userId || !tenantId) return { error: "Unauthorized" };
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+  const { isPlatformAdmin } = await import("@/lib/developer-setup");
+  if (!isPlatformAdmin(user?.email ?? null)) {
+    return { error: "Only platform admins can change this setting." };
+  }
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { settings: true },
+  });
+  const settings = (tenant?.settings as Record<string, unknown>) ?? {};
+  settings.allowDeveloperSetup = enabled === true;
+  await prisma.tenant.update({
+    where: { id: tenantId },
+    data: { settings: settings as object },
+  });
+  const { logAuditEvent } = await import("@/lib/audit");
+  await logAuditEvent(
+    tenantId,
+    enabled ? "developer_setup_enabled" : "developer_setup_disabled",
+    { enabled },
+    userId,
+    null
+  );
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/layout");
+  redirect("/dashboard/settings?success=developer-setup");
+}
+
+/** Form action for the "Allow developer setup" toggle. Reads formData "enabled" (true/false string). */
+export async function updateAllowDeveloperSetupFormAction(
+  tenantId: string,
+  _prev: unknown,
+  formData: FormData
+): Promise<{ error?: string }> {
+  const raw = formData.get("enabled");
+  const enabled = String(raw ?? "") === "true";
+  return updateAllowDeveloperSetup(tenantId, enabled);
+}
+
+/** Update "Allow developer setup" for any tenant. Platform admins only. Used by the Platform admin page. */
+export async function updateTenantDeveloperSetup(
+  targetTenantId: string,
+  enabled: boolean,
+  returnTo?: string | null
+): Promise<{ error?: string }> {
+  const h = await headers();
+  const userId = h.get("x-user-id");
+  if (!userId) return { error: "Unauthorized" };
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+  const { isPlatformAdmin } = await import("@/lib/developer-setup");
+  if (!isPlatformAdmin(user?.email ?? null)) {
+    return { error: "Only platform admins can change this setting." };
+  }
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: targetTenantId },
+    select: { settings: true },
+  });
+  if (!tenant) return { error: "Tenant not found." };
+  const settings = (tenant.settings as Record<string, unknown>) ?? {};
+  settings.allowDeveloperSetup = enabled === true;
+  await prisma.tenant.update({
+    where: { id: targetTenantId },
+    data: { settings: settings as object },
+  });
+  const { logAuditEvent } = await import("@/lib/audit");
+  await logAuditEvent(
+    targetTenantId,
+    enabled ? "developer_setup_enabled" : "developer_setup_disabled",
+    { enabled },
+    userId,
+    null
+  );
+  revalidatePath("/dashboard/platform");
+  revalidatePath(`/dashboard/platform/tenant/${targetTenantId}`);
+  revalidatePath("/dashboard/layout");
+  const path = returnTo?.trim();
+  const safeReturn = path && path.startsWith("/dashboard") ? path : "/dashboard/platform";
+  redirect(safeReturn + (safeReturn.includes("?") ? "&" : "?") + "success=updated");
+}
+
+/** Form action for Platform admin page: formData must include targetTenantId and enabled (true/false string). Optional returnTo for redirect after update. */
+export async function updateTenantDeveloperSetupFormAction(
+  prevOrFormData: unknown,
+  formDataArg?: FormData
+): Promise<{ error?: string }> {
+  const data = (formDataArg instanceof FormData ? formDataArg : prevOrFormData) as FormData;
+  if (!data?.get) return { error: "Invalid request." };
+  const targetTenantId = (data.get("targetTenantId") as string)?.trim();
+  const enabled = String(data.get("enabled") ?? "") === "true";
+  const returnTo = (data.get("returnTo") as string)?.trim() || null;
+  if (!targetTenantId) return { error: "Missing tenant." };
+  return updateTenantDeveloperSetup(targetTenantId, enabled, returnTo);
 }
 
 // -----------------------------------------------------------------------------
@@ -1471,6 +1630,11 @@ export async function createApiKeyAction(
   const userId = (await headers()).get("x-user-id");
   const sessionTenantId = (await headers()).get("x-tenant-id");
   if (!userId || sessionTenantId !== tenantId) return { error: "Unauthorized" };
+  const { getAllowDeveloperSetup } = await import("@/lib/developer-setup");
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { settings: true } });
+  if (!getAllowDeveloperSetup(tenant?.settings ?? null)) return { error: "Developer setup is not enabled for this workspace." };
+  const { hasPermission } = await import("@/lib/permissions");
+  if (!(await hasPermission(userId, PERMISSIONS.settingsDeveloper))) return { error: "You don't have permission to manage API keys." };
   const name = (formData.get("apiKeyName") as string)?.trim() || "API key";
   const { createApiKey } = await import("@/lib/api-keys");
   const result = await createApiKey(tenantId, name, userId);
@@ -1483,6 +1647,11 @@ export async function revokeApiKeyAction(tenantId: string, formData: FormData): 
   const userId = (await headers()).get("x-user-id");
   const sessionTenantId = (await headers()).get("x-tenant-id");
   if (!userId || sessionTenantId !== tenantId) return { error: "Unauthorized" };
+  const { getAllowDeveloperSetup } = await import("@/lib/developer-setup");
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { settings: true } });
+  if (!getAllowDeveloperSetup(tenant?.settings ?? null)) return { error: "Developer setup is not enabled for this workspace." };
+  const { hasPermission } = await import("@/lib/permissions");
+  if (!(await hasPermission(userId, PERMISSIONS.settingsDeveloper))) return { error: "You don't have permission to manage API keys." };
   const apiKeyId = (formData.get("apiKeyId") as string)?.trim();
   if (!apiKeyId) return { error: "Missing API key ID." };
   const { revokeApiKey } = await import("@/lib/api-keys");
@@ -1495,6 +1664,59 @@ export async function revokeApiKeyFormAction(tenantId: string, formData: FormDat
   if (result.error) throw new Error(result.error);
   revalidatePath("/dashboard/settings");
   redirect("/dashboard/settings");
+}
+
+/** Platform admin only: create API key for a target tenant. */
+export async function createApiKeyAsPlatformAdmin(
+  targetTenantId: string,
+  _prev: unknown,
+  formData: FormData
+): Promise<CreateApiKeyState> {
+  const h = await headers();
+  const userId = h.get("x-user-id");
+  if (!userId) return { error: "Unauthorized" };
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  const { isPlatformAdmin } = await import("@/lib/developer-setup");
+  if (!isPlatformAdmin(user?.email ?? null)) return { error: "Only platform admins can create API keys for other tenants." };
+  const name = (formData.get("apiKeyName") as string)?.trim() || "API key";
+  const { createApiKey } = await import("@/lib/api-keys");
+  const result = await createApiKey(targetTenantId, name, userId);
+  if ("error" in result) return { error: result.error };
+  return { key: result.key };
+}
+
+/** Form action for platform admin: reads targetTenantId from formData and creates API key for that tenant. */
+export async function createApiKeyAsPlatformAdminFormAction(
+  prev: unknown,
+  formData: FormData
+): Promise<CreateApiKeyState> {
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  if (!targetTenantId) return { error: "Missing target tenant." };
+  return createApiKeyAsPlatformAdmin(targetTenantId, prev, formData);
+}
+
+/** Platform admin only: revoke API key for a target tenant. */
+export async function revokeApiKeyAsPlatformAdmin(targetTenantId: string, formData: FormData): Promise<void> {
+  const h = await headers();
+  const userId = h.get("x-user-id");
+  if (!userId) redirect("/login");
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  const { isPlatformAdmin } = await import("@/lib/developer-setup");
+  if (!isPlatformAdmin(user?.email ?? null)) throw new Error("Only platform admins can revoke API keys for other tenants.");
+  const apiKeyId = (formData.get("apiKeyId") as string)?.trim();
+  if (!apiKeyId) throw new Error("Missing API key ID.");
+  const { revokeApiKey } = await import("@/lib/api-keys");
+  const result = await revokeApiKey(targetTenantId, apiKeyId, userId);
+  if (result.error) throw new Error(result.error);
+  revalidatePath(`/dashboard/platform/tenant/${targetTenantId}`);
+  redirect(`/dashboard/platform/tenant/${targetTenantId}?success=saved`);
+}
+
+/** Form action for platform admin: reads targetTenantId from formData and revokes API key for that tenant. */
+export async function revokeApiKeyAsPlatformAdminFormAction(formData: FormData): Promise<void> {
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  if (!targetTenantId) throw new Error("Missing target tenant.");
+  return revokeApiKeyAsPlatformAdmin(targetTenantId, formData);
 }
 
 // -----------------------------------------------------------------------------
@@ -1721,7 +1943,7 @@ export async function addFieldToModule(moduleSlug: string, _prev: unknown, formD
   redirect(`/dashboard/m/${moduleSlug}/fields`);
 }
 
-/** Update a field (name, type, required, settings). Slug cannot be changed. */
+/** Update a field (name, type, required, settings). Slug cannot be changed. Type cannot be changed when records have values for this field. */
 export async function updateFieldInModule(moduleSlug: string, fieldSlug: string, _prev: unknown, formData: FormData): Promise<{ error?: string }> {
   await requireDashboardPermission(PERMISSIONS.modulesManage);
   const tenantId = (await headers()).get("x-tenant-id");
@@ -1737,6 +1959,15 @@ export async function updateFieldInModule(moduleSlug: string, fieldSlug: string,
   if (!name) return { error: "Field name is required." };
   const fieldType = (formData.get("fieldType") as string)?.trim();
   if (!fieldType || !FIELD_TYPES.includes(fieldType as (typeof FIELD_TYPES)[number])) return { error: "Valid field type is required." };
+  if (fieldType !== field.fieldType) {
+    const rows = await prisma.$queryRaw<[{ count: bigint }]>(
+      Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND (data ? ${fieldSlug})`
+    );
+    const count = Number(rows[0]?.count ?? 0);
+    if (count > 0) {
+      return { error: `Cannot change field type: ${count} record(s) have a value for this field. Clear or migrate data first.` };
+    }
+  }
   const isRequired = formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
   const settings: Record<string, unknown> = {};
   if (fieldType === "select") {
@@ -1814,6 +2045,280 @@ export async function reorderFieldInModule(moduleSlug: string, fieldSlug: string
   revalidatePath(`/dashboard/m/${moduleSlug}`);
   revalidatePath(`/dashboard/m/${moduleSlug}/fields`);
   redirect(`/dashboard/m/${moduleSlug}/fields`);
+}
+
+// -----------------------------------------------------------------------------
+// Platform admin: modules & fields for another tenant (formData includes targetTenantId)
+// -----------------------------------------------------------------------------
+
+async function requirePlatformAdmin(): Promise<string> {
+  const h = await headers();
+  const userId = h.get("x-user-id");
+  if (!userId) throw new Error("Unauthorized");
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  const { isPlatformAdmin } = await import("@/lib/developer-setup");
+  if (!isPlatformAdmin(user?.email ?? null)) throw new Error("Only platform admins can edit another tenant's modules.");
+  return userId;
+}
+
+function platformFieldsRedirect(targetTenantId: string, moduleSlug: string): string {
+  return `/dashboard/platform/tenant/${targetTenantId}/modules/${moduleSlug}/fields`;
+}
+
+function platformModulesRedirect(targetTenantId: string): string {
+  return `/dashboard/platform/tenant/${targetTenantId}/modules`;
+}
+
+/** Platform admin: create module. formData: targetTenantId, name, slug? */
+export async function createModuleAsPlatformAdminFormAction(prev: unknown, formData: FormData): Promise<unknown> {
+  try {
+    await requirePlatformAdmin();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  const name = (formData.get("name") as string)?.trim();
+  if (!targetTenantId || !name) return { error: "Missing target tenant or module name." };
+  let slug = (formData.get("slug") as string)?.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_|_$/g, "");
+  if (!slug) slug = name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]+/g, "_");
+  const existing = await prisma.module.findFirst({
+    where: { tenantId: targetTenantId, slug },
+    select: { id: true },
+  });
+  if (existing) return { error: `A module with slug "${slug}" already exists for this tenant.` };
+  const maxOrder = await prisma.module.findMany({
+    where: { tenantId: targetTenantId },
+    orderBy: { sortOrder: "desc" },
+    take: 1,
+    select: { sortOrder: true },
+  });
+  await prisma.module.create({
+    data: {
+      tenantId: targetTenantId,
+      name,
+      slug,
+      sortOrder: (maxOrder[0]?.sortOrder ?? -1) + 1,
+    },
+  });
+  revalidatePath(platformModulesRedirect(targetTenantId));
+  redirect(platformModulesRedirect(targetTenantId));
+}
+
+/** Platform admin: disable module (set isActive false). formData: targetTenantId, moduleSlug. Accepts (formData) or (prev, formData). */
+export async function disableModuleAsPlatformAdminFormAction(prevOrFormData: unknown, formDataArg?: FormData) {
+  const formData = formDataArg instanceof FormData ? formDataArg : (prevOrFormData as FormData);
+  await requirePlatformAdmin();
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  if (!targetTenantId || !moduleSlug) throw new Error("Missing target tenant or module.");
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId: targetTenantId, slug: moduleSlug },
+    select: { id: true },
+  });
+  if (!module_) throw new Error("Module not found.");
+  await prisma.module.update({ where: { id: module_.id }, data: { isActive: false } });
+  revalidatePath(platformModulesRedirect(targetTenantId));
+  redirect(platformModulesRedirect(targetTenantId));
+}
+
+/** Platform admin: enable module (set isActive true). formData: targetTenantId, moduleSlug. Accepts (formData) or (prev, formData). */
+export async function enableModuleAsPlatformAdminFormAction(prevOrFormData: unknown, formDataArg?: FormData) {
+  const formData = formDataArg instanceof FormData ? formDataArg : (prevOrFormData as FormData);
+  await requirePlatformAdmin();
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  if (!targetTenantId || !moduleSlug) throw new Error("Missing target tenant or module.");
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId: targetTenantId, slug: moduleSlug },
+    select: { id: true },
+  });
+  if (!module_) throw new Error("Module not found.");
+  await prisma.module.update({ where: { id: module_.id }, data: { isActive: true } });
+  revalidatePath(platformModulesRedirect(targetTenantId));
+  redirect(platformModulesRedirect(targetTenantId));
+}
+
+/** Platform admin: delete module (fails if module has entities). formData: targetTenantId, moduleSlug. Accepts (formData) or (prev, formData). */
+export async function deleteModuleAsPlatformAdminFormAction(prevOrFormData: unknown, formDataArg?: FormData) {
+  const formData = formDataArg instanceof FormData ? formDataArg : (prevOrFormData as FormData);
+  await requirePlatformAdmin();
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  if (!targetTenantId || !moduleSlug) throw new Error("Missing target tenant or module.");
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId: targetTenantId, slug: moduleSlug },
+    select: { id: true },
+  });
+  if (!module_) throw new Error("Module not found.");
+  const entityCount = await prisma.entity.count({ where: { moduleId: module_.id } });
+  if (entityCount > 0) {
+    throw new Error(`Cannot delete: module has ${entityCount} record(s). Delete or move the records first.`);
+  }
+  await prisma.module.delete({ where: { id: module_.id } });
+  revalidatePath(platformModulesRedirect(targetTenantId));
+  redirect(platformModulesRedirect(targetTenantId));
+}
+
+/** Platform admin: add field. formData: targetTenantId, moduleSlug, name, slug?, fieldType, isRequired?, options?, targetModuleSlug? */
+export async function addFieldToModuleAsPlatformAdminFormAction(_prev: unknown, formData: FormData) {
+  await requirePlatformAdmin();
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  if (!targetTenantId || !moduleSlug) throw new Error("Missing target tenant or module.");
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId: targetTenantId, slug: moduleSlug, isActive: true },
+    include: { fields: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!module_) throw new Error("Module not found.");
+  const name = (formData.get("name") as string)?.trim();
+  if (!name) return { error: "Field name is required." };
+  let slug = (formData.get("slug") as string)?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || name.toLowerCase().replace(/\s+/g, "_");
+  const fieldType = (formData.get("fieldType") as string)?.trim();
+  if (!fieldType || !FIELD_TYPES.includes(fieldType as (typeof FIELD_TYPES)[number])) return { error: "Valid field type is required." };
+  const isRequired = formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
+  const existingSlugs = new Set(module_.fields.map((f) => f.slug));
+  let n = 0;
+  while (existingSlugs.has(slug)) slug = `${slug}_${++n}`;
+  const settings: Record<string, unknown> = {};
+  if (fieldType === "select") {
+    const opts = (formData.get("options") as string)?.trim();
+    if (opts) settings.options = opts.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  if (fieldType === "relation" || fieldType === "relation-multi") {
+    const target = (formData.get("targetModuleSlug") as string)?.trim();
+    if (target) settings.targetModuleSlug = target;
+  }
+  const sortOrder = module_.fields.length > 0 ? Math.max(...module_.fields.map((f) => f.sortOrder)) + 1 : 0;
+  await prisma.field.create({
+    data: {
+      moduleId: module_.id,
+      name,
+      slug,
+      fieldType,
+      isRequired,
+      sortOrder,
+      settings: Object.keys(settings).length > 0 ? (settings as object) : undefined,
+    },
+  });
+  revalidatePath(platformFieldsRedirect(targetTenantId, moduleSlug));
+  redirect(platformFieldsRedirect(targetTenantId, moduleSlug));
+}
+
+/** Platform admin: update field. formData: targetTenantId, moduleSlug, fieldSlug, name, fieldType, isRequired?, options?, targetModuleSlug?. Type cannot be changed when records have values. Accepts (formData) or (prev, formData). */
+export async function updateFieldInModuleAsPlatformAdminFormAction(prevOrFormData: unknown, formDataArg?: FormData): Promise<{ error?: string }> {
+  const formData = formDataArg instanceof FormData ? formDataArg : (prevOrFormData as FormData);
+  try {
+    await requirePlatformAdmin();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  const fieldSlug = (formData.get("fieldSlug") as string)?.trim();
+  if (!targetTenantId || !moduleSlug || !fieldSlug) return { error: "Missing target tenant, module, or field." };
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId: targetTenantId, slug: moduleSlug, isActive: true },
+    include: { fields: { where: { slug: fieldSlug } } },
+  });
+  if (!module_) return { error: "Module not found." };
+  const field = module_.fields[0];
+  if (!field) return { error: "Field not found." };
+  const name = (formData.get("name") as string)?.trim();
+  if (!name) return { error: "Field name is required." };
+  const fieldType = (formData.get("fieldType") as string)?.trim();
+  if (!fieldType || !FIELD_TYPES.includes(fieldType as (typeof FIELD_TYPES)[number])) return { error: "Valid field type is required." };
+  if (fieldType !== field.fieldType) {
+    const rows = await prisma.$queryRaw<[{ count: bigint }]>(
+      Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND (data ? ${fieldSlug})`
+    );
+    const count = Number(rows[0]?.count ?? 0);
+    if (count > 0) {
+      return { error: `Cannot change field type: ${count} record(s) have a value for this field. Clear or migrate data first.` };
+    }
+  }
+  const isRequired = formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
+  const settings: Record<string, unknown> = {};
+  if (fieldType === "select") {
+    const opts = (formData.get("options") as string)?.trim();
+    if (opts) settings.options = opts.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  if (fieldType === "relation" || fieldType === "relation-multi") {
+    const target = (formData.get("targetModuleSlug") as string)?.trim();
+    if (target) settings.targetModuleSlug = target;
+  }
+  await prisma.field.update({
+    where: { id: field.id },
+    data: { name, fieldType, isRequired, settings: Object.keys(settings).length > 0 ? (settings as object) : {} },
+  });
+  revalidatePath(platformFieldsRedirect(targetTenantId, moduleSlug));
+  redirect(platformFieldsRedirect(targetTenantId, moduleSlug));
+}
+
+/** Platform admin: remove field. formData: targetTenantId, moduleSlug, fieldSlug. Returns { error } when records have data. Accepts (formData) or (prev, formData). */
+export async function removeFieldFromModuleAsPlatformAdminFormAction(
+  prevOrFormData: unknown,
+  formDataArg?: FormData
+): Promise<{ error?: string }> {
+  const formData = formDataArg instanceof FormData ? formDataArg : (prevOrFormData as FormData);
+  try {
+    await requirePlatformAdmin();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  const fieldSlug = (formData.get("fieldSlug") as string)?.trim();
+  if (!targetTenantId || !moduleSlug || !fieldSlug) return { error: "Missing target tenant, module, or field." };
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId: targetTenantId, slug: moduleSlug },
+    include: { fields: { where: { slug: fieldSlug } } },
+  });
+  if (!module_) return { error: "Module not found." };
+  const field = module_.fields[0];
+  if (!field) return { error: "Field not found." };
+  const rows = await prisma.$queryRaw<[{ count: bigint }]>(
+    Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND (data ? ${fieldSlug})`
+  );
+  const count = Number(rows[0]?.count ?? 0);
+  if (count > 0) {
+    return { error: `Cannot remove: ${count} record(s) have a value for this field. Clear data first.` };
+  }
+  await prisma.field.delete({ where: { id: field.id } });
+  revalidatePath(platformFieldsRedirect(targetTenantId, moduleSlug));
+  redirect(platformFieldsRedirect(targetTenantId, moduleSlug));
+}
+
+/** Platform admin: reorder field. formData: targetTenantId, moduleSlug, fieldSlug, direction (up|down). Accepts (formData) or (prev, formData). */
+export async function reorderFieldInModuleAsPlatformAdminFormAction(prevOrFormData: unknown, formDataArg?: FormData) {
+  const formData = formDataArg instanceof FormData ? formDataArg : (prevOrFormData as FormData);
+  await requirePlatformAdmin();
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  const fieldSlug = (formData.get("fieldSlug") as string)?.trim();
+  const direction = (formData.get("direction") as string) === "up" ? "up" : "down";
+  if (!targetTenantId || !moduleSlug || !fieldSlug) throw new Error("Missing target tenant, module, or field.");
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId: targetTenantId, slug: moduleSlug, isActive: true },
+    include: { fields: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!module_) throw new Error("Module not found.");
+  const slugs = module_.fields.map((f) => f.slug);
+  const fromIndex = slugs.indexOf(fieldSlug);
+  if (fromIndex === -1) throw new Error("Field not found.");
+  const toIndex = direction === "up" ? fromIndex - 1 : fromIndex + 1;
+  if (toIndex < 0 || toIndex >= slugs.length) throw new Error("Already at boundary.");
+  const reordered = [...slugs];
+  const [removed] = reordered.splice(fromIndex, 1);
+  reordered.splice(toIndex, 0, removed);
+  for (let i = 0; i < reordered.length; i++) {
+    const slug = reordered[i];
+    const f = module_.fields.find((x) => x.slug === slug);
+    if (f && f.sortOrder !== i) {
+      await prisma.field.update({ where: { id: f.id }, data: { sortOrder: i } });
+    }
+  }
+  revalidatePath(platformFieldsRedirect(targetTenantId, moduleSlug));
+  redirect(platformFieldsRedirect(targetTenantId, moduleSlug));
 }
 
 /** Unified AI: one prompt → create module, add fields, create view, enable public, set home, create entity, update/delete view, rename module, remove field, reorder. */
@@ -2550,6 +3055,37 @@ export async function updateConsentTypesFormAction(_prev: unknown, formData: For
   });
   revalidatePath("/dashboard/settings");
   revalidatePath("/dashboard/consent");
+  return {};
+}
+
+/** Platform admin only: update consent types for a target tenant. formData must include targetTenantId. */
+export async function updateConsentTypesAsPlatformAdmin(
+  _prev: unknown,
+  formData: FormData
+): Promise<{ error?: string }> {
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  if (!targetTenantId) return { error: "Missing target tenant." };
+  const h = await headers();
+  const userId = h.get("x-user-id");
+  if (!userId) return { error: "Unauthorized" };
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  const { isPlatformAdmin } = await import("@/lib/developer-setup");
+  if (!isPlatformAdmin(user?.email ?? null)) return { error: "Only platform admins can edit this." };
+  const raw = (formData.get("consentTypes") as string)?.trim() || "";
+  const consentTypes = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : DEFAULT_CONSENT_TYPES;
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: targetTenantId },
+    select: { settings: true },
+  });
+  const settings = (tenant?.settings as Record<string, unknown>) ?? {};
+  settings.consentTypes = consentTypes;
+  await prisma.tenant.update({
+    where: { id: targetTenantId },
+    data: { settings: settings as object },
+  });
+  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/consent");
+  revalidatePath(`/dashboard/platform/tenant/${targetTenantId}`);
   return {};
 }
 

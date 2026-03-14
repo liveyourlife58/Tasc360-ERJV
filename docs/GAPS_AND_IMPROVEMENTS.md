@@ -2,7 +2,7 @@
 
 This document tracks what is **done** vs **still missing or partial** relative to the database schema and product plan. Use it to prioritize next work.
 
-**Last updated:** Integration prep: Integration table, JournalEntry.externalId, credentials encryption (`lib/integration-credentials.ts`), external-ids helpers (`lib/external-ids.ts`), integration audit event types, dashboard Integrations page (placeholder). Earlier: File field sync, Edit View filter/sort, Consent UI, Users & roles, Feature flags, Team page, E2E smoke tests, etc.
+**Last updated:** Developer setup (per-tenant flag + `settings:developer` permission), platform admin UI (`/dashboard/platform`), provider doc ([PROVIDER.md](PROVIDER.md)), audit for developer_setup toggle, operations doc ([OPERATIONS.md](OPERATIONS.md)) and cron/secrets-rotation notes, tenant isolation E2E test. Earlier: Integration prep, Integrations page, File field sync, Edit View filter/sort, Consent UI, Team page, E2E smoke tests, etc.
 
 ---
 
@@ -25,6 +25,7 @@ This document tracks what is **done** vs **still missing or partial** relative t
 | **Users & roles (admin)** | **Done** | **Team** page: list users, invite, edit user (role, active), create/edit roles and permissions. |
 | **Consent** | **Done** | Settings → Consent types (comma-separated). **Consent** page: list consents (filter by user/type), revoke, grant (record consent). |
 | **Integrations** | Prep done | Integration table, JE externalId, credentials encryption, external-ids helpers, audit event types. **Integrations** page lists connections; connect flows (e.g. QuickBooks) to be added. |
+| **Developer setup / Platform admin** | **Done** | Per-tenant `allowDeveloperSetup`; `settings:developer` permission; API keys, Webhooks, Integrations gated. Platform admins (`PLATFORM_ADMIN_EMAILS`) can toggle via Settings or **Platform admin** page. See [PROVIDER.md](PROVIDER.md). |
 | **Other domain tables** | As needed | Approval (UI done), TimeEntry, JournalEntry (UI done), recurring, etc. — add UI as needed. |
 
 ---
@@ -48,6 +49,11 @@ This document tracks what is **done** vs **still missing or partial** relative t
 | Feature flags in dashboard settings | **Done** | Settings → Feature flags (e.g. myOrders, refunds) in `tenant.settings.features`. |
 | Full filter/sort UI in Edit View | **Done** | Edit View form includes filter conditions (field, op, value) and sort (field, dir). |
 | Users & roles dashboard | **Done** | **Team** page: list users, add user, invite by email, edit user (role, active, password). **Roles** section: list roles, create role, edit role (name, description, permissions). Sidebar: Team + Subscription & billing. |
+| Developer setup (per tenant) | **Done** | API keys, Webhooks, Integrations hidden by default; `allowDeveloperSetup` + `settings:developer`; platform admin toggle; [PROVIDER.md](PROVIDER.md). |
+| Platform admin UI | **Done** | `/dashboard/platform` lists all tenants and toggles “Allow developer setup”; sidebar link for `PLATFORM_ADMIN_EMAILS` users. |
+| Cron / scheduled jobs | **Done** | Webhook retries: `GET /api/cron/webhook-retries` with `CRON_SECRET`; documented in README and [OPERATIONS.md](OPERATIONS.md). |
+| Tenant isolation check | **Done** | E2E test (optional): `E2E_TENANT_ISOLATION_A_KEY` + `E2E_TENANT_ISOLATION_B_SLUG` assert 401 when key for A is used for B. |
+| Secrets rotation | **Done** | [OPERATIONS.md](OPERATIONS.md) documents rotating CRON_SECRET and INTEGRATION_ENCRYPTION_KEY. |
 
 ---
 

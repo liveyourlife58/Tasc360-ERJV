@@ -34,4 +34,20 @@ test.describe("Smoke", () => {
     expect(body).toHaveProperty("modules");
     expect(Array.isArray(body.modules)).toBe(true);
   });
+
+  test("Tenant isolation: API key for tenant A cannot access tenant B (optional)", async ({ request }) => {
+    const keyA = process.env.E2E_TENANT_ISOLATION_A_KEY;
+    const slugB = process.env.E2E_TENANT_ISOLATION_B_SLUG;
+    if (!keyA || !slugB) {
+      test.skip();
+      return;
+    }
+    const res = await request.get(`/api/v1/tenants/${slugB}/modules`, {
+      headers: { "X-API-Key": keyA },
+    });
+    expect(res.status()).toBe(401);
+    const body = await res.json();
+    expect(body).toHaveProperty("error");
+    expect(body.code).toBe("UNAUTHORIZED");
+  });
 });

@@ -10,11 +10,22 @@ Dashboard access is controlled by **roles** and **permissions**. Each user has o
 | **entities:write** | Create, edit, delete, restore, clone entities; request approval; approve/reject approval requests; record/revoke consent. |
 | **modules:manage** | Create, edit, reorder, delete modules; add/edit/remove/reorder fields; apply templates; AI module creation. |
 | **views:manage** | Create, edit, delete views; set default view; filter/sort/columns on views. |
-| **settings:manage** | Settings (branding, API keys, webhooks, finance config, feature flags, consent types, customer site, etc.); Finance page and journal entries; Integrations page; Subscription & billing (Stripe checkout/portal). |
+| **settings:manage** | Settings (branding, finance config, feature flags, consent types, customer site, etc.); Finance page and journal entries; Subscription & billing (Stripe checkout/portal). |
+| **settings:developer** | API keys, Webhooks and Integrations (only visible when the tenant has "Developer setup" enabled). Create/revoke API keys; configure webhook URL; open Integrations page. |
 | **users:manage** | Team page: add user, invite, edit user (role, name, email, password, active); create and edit roles and their permissions. |
 | **\*** (full access) | All of the above. |
 
 Permission checks are enforced in server actions and in route handlers (e.g. CSV export). Pages that require a specific permission redirect to `/dashboard` if the user lacks it (e.g. Activity and Approvals require `entities:read`; Finance and Integrations require `settings:manage`).
+
+### Developer setup (per tenant)
+
+By default, **API keys**, **Webhooks** and **Integrations** are hidden from the dashboard so non-technical tenants only see day-to-day settings. To give a particular tenant the ability to manage their own setup:
+
+1. **Enable developer setup for the tenant**  
+   Only users listed in `PLATFORM_ADMIN_EMAILS` (env) see a "Turn on developer setup" control in **Settings**. Turn it on for that tenant.
+
+2. **Grant the permission**  
+   Ensure at least one user (e.g. their admin) has the **settings:developer** permission (via the admin role or a custom role). That user will then see the API access and Webhooks sections in Settings, the Integrations link in the sidebar, and the Integrations page.
 
 ## Default roles
 

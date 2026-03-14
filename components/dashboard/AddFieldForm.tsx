@@ -7,10 +7,12 @@ type OtherModule = { slug: string; name: string };
 export function AddFieldForm({
   moduleSlug,
   action,
+  extraFormFields,
   otherModuleSlugs,
 }: {
   moduleSlug: string;
   action: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
   otherModuleSlugs: OtherModule[];
 }) {
   const [state, formAction] = useActionState(action, null);
@@ -18,6 +20,9 @@ export function AddFieldForm({
 
   return (
     <form action={formAction} className="settings-form" style={{ maxWidth: 480 }}>
+      {extraFormFields && Object.entries(extraFormFields).map(([k, v]) => (
+        <input key={k} type="hidden" name={k} value={v} />
+      ))}
       <div className="form-group">
         <label htmlFor="fieldName">Name</label>
         <input id="fieldName" name="name" type="text" required placeholder="e.g. Status" />

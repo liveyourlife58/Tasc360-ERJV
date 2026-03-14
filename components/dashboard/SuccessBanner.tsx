@@ -10,6 +10,7 @@ const MESSAGES: Record<string, string> = {
   updated: "Updated.",
   exported: "Export downloaded.",
   restored: "Restored.",
+  "developer-setup": "Developer setup updated.",
 };
 
 function buildPathWithoutSuccess(pathname: string, searchParams: URLSearchParams) {

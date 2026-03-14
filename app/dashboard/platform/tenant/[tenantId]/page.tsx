@@ -1,9 +1,8 @@
 import { Suspense } from "react";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { SuccessBanner } from "@/components/dashboard/SuccessBanner";
 import { getDashboardSettings } from "@/lib/dashboard-settings";
 import { getFeatureFlags } from "@/lib/feature-flags";
 import { getModulePaymentType } from "@/lib/module-settings";
@@ -11,64 +10,45 @@ import { getTenantConnectConfig } from "@/lib/stripe-connect";
 import { listApiKeys } from "@/lib/api-keys";
 import { getConsentTypes } from "@/lib/consent";
 import { getAllowDeveloperSetup, isPlatformAdmin } from "@/lib/developer-setup";
-import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { updateDashboardSettings, connectStripeFormAction, sendTestWebhookFormAction, createApiKeyAction, revokeApiKeyFormAction, updateConsentTypesFormAction, updateAllowDeveloperSetupFormAction } from "../actions";
-import { SettingsSectionCards } from "./SettingsSectionCards";
+import {
+  updateTenantSettingsAsPlatformAdmin,
+  updateTenantDeveloperSetupFormAction,
+  updateConsentTypesAsPlatformAdmin,
+  createApiKeyAsPlatformAdminFormAction,
+  revokeApiKeyAsPlatformAdminFormAction,
+} from "../../../actions";
+import { SuccessBanner } from "@/components/dashboard/SuccessBanner";
+import { SettingsSectionCards } from "@/app/dashboard/settings/SettingsSectionCards";
 
-export default async function DashboardSettingsPage({
+export default async function PlatformTenantDetailPage({
+  params,
   searchParams,
 }: {
-  searchParams: Promise<{ stripe_connect?: string; success?: string }>;
+  params: Promise<{ tenantId: string }>;
+  searchParams: Promise<{ success?: string }>;
 }) {
-  const tenantId = (await headers()).get("x-tenant-id");
-  if (!tenantId) redirect("/login");
+  const h = await headers();
+  const userId = h.get("x-user-id");
+  if (!userId) redirect("/login");
 
-  const params = await searchParams;
-  if (params.stripe_connect === "return" || params.stripe_connect === "refresh") {
-    const { setConnectOnboardingComplete } = await import("@/lib/stripe-connect");
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { settings: true },
-    });
-    const config = tenant ? getTenantConnectConfig(tenant) : null;
-    if (config?.accountId) {
-      try {
-        const Stripe = (await import("stripe")).default;
-        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-        const account = await stripe.accounts.retrieve(config.accountId);
-        const complete = account.charges_enabled === true;
-        await setConnectOnboardingComplete(tenantId, complete);
-      } catch {
-        await setConnectOnboardingComplete(tenantId, false);
-      }
-    }
-    redirect("/dashboard/settings");
-  }
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+  if (!isPlatformAdmin(user?.email ?? null)) redirect("/dashboard");
 
-  const userId = (await headers()).get("x-user-id");
-  const [tenant, user, hasDeveloperPermission, modules] = await Promise.all([
-    prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { name: true, settings: true },
-    }),
-    userId ? prisma.user.findUnique({ where: { id: userId }, select: { email: true } }) : null,
-    userId ? hasPermission(userId, PERMISSIONS.settingsDeveloper) : false,
-    prisma.module.findMany({
-      where: { tenantId, isActive: true },
-      orderBy: { sortOrder: "asc" },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        settings: true,
-        fields: { orderBy: { sortOrder: "asc" }, select: { id: true, slug: true, name: true } },
-      },
-    }),
-  ]);
-  const dashboardSettings = getDashboardSettings(tenant?.settings ?? null);
-  const settingsObj = (tenant?.settings as Record<string, unknown>) ?? {};
+  const { tenantId } = await params;
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { id: true, name: true, slug: true, settings: true },
+  });
+  if (!tenant) notFound();
+
+  const settingsObj = (tenant.settings as Record<string, unknown>) ?? {};
   const site = (settingsObj.site as Record<string, unknown>) ?? {};
   const pages = (settingsObj.pages as Record<string, unknown>) ?? {};
+  const dashboardSettings = getDashboardSettings(tenant.settings ?? null);
+
   const currentSiteName = (site.name as string) ?? "";
   const currentTagline = (site.tagline as string) ?? "";
   const currentHeroImage = (site.heroImage as string) ?? "";
@@ -81,7 +61,9 @@ export default async function DashboardSettingsPage({
   const currentCanonicalBaseUrl = (site.canonicalBaseUrl as string) ?? "";
   const currentCustomDomain = (site.customDomain as string) ?? "";
   const currentFaviconUrl = (site.faviconUrl as string) ?? "";
-  const waitlistRaw = site.waitlist as { moduleSlug: string; eventFieldSlug: string; emailFieldSlug: string; quantityFieldSlug: string } | undefined;
+  const waitlistRaw = site.waitlist as
+    | { moduleSlug: string; eventFieldSlug: string; emailFieldSlug: string; quantityFieldSlug: string }
+    | undefined;
   const currentWaitlist = waitlistRaw && waitlistRaw.moduleSlug ? waitlistRaw : null;
   const homepageSidebarModule = (site.homepageSidebarModule as string) ?? "";
   const homepageSidebarFieldSlugs = Array.isArray(site.homepageSidebarFieldSlugs)
@@ -106,6 +88,18 @@ export default async function DashboardSettingsPage({
         ? { extraContent: rawContact }
         : {};
   const publicModules = (site.publicModules as Record<string, { slug: string; showInNav?: boolean }>) ?? {};
+
+  const modules = await prisma.module.findMany({
+    where: { tenantId, isActive: true },
+    orderBy: { sortOrder: "asc" },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      settings: true,
+      fields: { orderBy: { sortOrder: "asc" }, select: { id: true, slug: true, name: true } },
+    },
+  });
   const modulePaymentTypes: Record<string, "payment" | "donation" | null> = {};
   for (const m of modules) {
     modulePaymentTypes[m.slug] = getModulePaymentType(m);
@@ -120,14 +114,22 @@ export default async function DashboardSettingsPage({
     viewsByModule[m.slug] = views;
   }
 
-  const stripeConnectConfig = tenant ? getTenantConnectConfig(tenant) : null;
+  const stripeConnectConfig = getTenantConnectConfig(tenant);
   const currentWebhookUrl = (settingsObj.webhookUrl as string) ?? "";
   const currentWebhookSecret = (settingsObj.webhookSecret as string) ?? "";
   const currentWebhookDeliveries = await prisma.webhookDelivery.findMany({
     where: { tenantId },
     orderBy: { createdAt: "desc" },
     take: 30,
-    select: { id: true, event: true, url: true, success: true, statusCode: true, errorMessage: true, createdAt: true },
+    select: {
+      id: true,
+      event: true,
+      url: true,
+      success: true,
+      statusCode: true,
+      errorMessage: true,
+      createdAt: true,
+    },
   });
   const currentNotificationEmail = (settingsObj.notificationEmail as string) ?? "";
   const emailNotif = (settingsObj.emailNotifications as Record<string, boolean>) ?? {};
@@ -141,28 +143,64 @@ export default async function DashboardSettingsPage({
   const currentEmailFromName = (settingsObj.emailFromName as string) ?? "";
   const currentEmailReplyTo = (settingsObj.emailReplyTo as string) ?? "";
   const currentLocale = (settingsObj.locale as string) ?? "";
-  const featureFlags = getFeatureFlags(tenant?.settings ?? null);
+  const featureFlags = getFeatureFlags(tenant.settings ?? null);
   const apiKeys = await listApiKeys(tenantId);
-  const currentConsentTypes = getConsentTypes(tenant?.settings as Record<string, unknown> ?? null);
-  const allowDeveloperSetup = getAllowDeveloperSetup(tenant?.settings ?? null);
-  const showDeveloperSections = allowDeveloperSetup && hasDeveloperPermission;
-  const platformAdmin = isPlatformAdmin(user?.email ?? null);
+  const currentConsentTypes = getConsentTypes(settingsObj);
+  const allowDeveloperSetup = getAllowDeveloperSetup(tenant.settings ?? null);
+  const success = (await searchParams).success;
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+
+  const platformUpdateAction = async (prev: unknown, formData: FormData) => {
+    const fd = new FormData();
+    formData.forEach((v, k) => fd.append(k, v));
+    fd.set("targetTenantId", tenantId);
+    return updateTenantSettingsAsPlatformAdmin(prev, fd);
+  };
 
   return (
     <div>
       <Suspense fallback={null}>
-        <SuccessBanner successKey={params.success} />
+        <SuccessBanner successKey={success} />
       </Suspense>
       <div className="page-header">
-        <h1>Dashboard settings</h1>
-        <Link href="/dashboard" className="btn btn-secondary">
-          Back to Home
-        </Link>
+        <h1>{tenant.name ?? tenant.slug ?? "Tenant"}</h1>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <Link href="/dashboard/platform" className="btn btn-secondary">
+            Back to Platform admin
+          </Link>
+          {baseUrl && tenant.slug && (
+            <a
+              href={`${baseUrl}/s/${tenant.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-secondary"
+            >
+              View public site
+            </a>
+          )}
+        </div>
       </div>
-      <p className="settings-intro">Click a section to open its settings.</p>
+      <dl className="subscription-section" style={{ marginBottom: "1.5rem" }}>
+        <dt>Slug</dt>
+        <dd>
+          <code>{tenant.slug ?? "—"}</code>
+        </dd>
+      </dl>
+      <p className="page-description" style={{ marginBottom: "1rem" }}>
+        <Link href={`/dashboard/platform/tenant/${tenantId}/modules`} className="btn btn-secondary">
+          Edit modules &amp; fields
+        </Link>
+      </p>
+      <p className="settings-intro">Change this tenant&apos;s settings below. All sections are editable.</p>
       <SettingsSectionCards
         tenantId={tenantId}
-        updateAction={updateDashboardSettings.bind(null, tenantId)}
+        updateAction={updateTenantSettingsAsPlatformAdmin}
+        extraFormFields={{
+          targetTenantId: tenantId,
+          returnTo: `/dashboard/platform/tenant/${tenantId}`,
+        }}
         branding={dashboardSettings.branding}
         home={dashboardSettings.home}
         sidebarOrder={dashboardSettings.sidebarOrder}
@@ -188,11 +226,9 @@ export default async function DashboardSettingsPage({
         currentFaviconUrl={currentFaviconUrl}
         currentWaitlist={currentWaitlist}
         stripeConnectConfig={stripeConnectConfig}
-        connectStripeAction={connectStripeFormAction}
         currentWebhookUrl={currentWebhookUrl}
         currentWebhookSecret={currentWebhookSecret}
         currentWebhookDeliveries={currentWebhookDeliveries}
-        sendTestWebhookAction={sendTestWebhookFormAction}
         currentNotificationEmail={currentNotificationEmail}
         emailNotificationFlags={emailNotificationFlags}
         currentEmailFromAddress={currentEmailFromAddress}
@@ -201,16 +237,14 @@ export default async function DashboardSettingsPage({
         currentLocale={currentLocale}
         featureFlags={featureFlags}
         apiKeys={apiKeys}
-        createApiKeyAction={createApiKeyAction.bind(null, tenantId)}
-        revokeApiKeyAction={revokeApiKeyFormAction.bind(null, tenantId)}
+        createApiKeyAction={createApiKeyAsPlatformAdminFormAction}
+        revokeApiKeyAction={revokeApiKeyAsPlatformAdminFormAction}
         currentConsentTypes={currentConsentTypes}
-        updateConsentTypesFormAction={updateConsentTypesFormAction}
-        showDeveloperSections={showDeveloperSections}
-        isPlatformAdmin={platformAdmin}
+        updateConsentTypesFormAction={updateConsentTypesAsPlatformAdmin}
+        showDeveloperSections={true}
+        isPlatformAdmin={true}
         allowDeveloperSetup={allowDeveloperSetup}
-        updateAllowDeveloperSetupFormAction={(prev, formData) =>
-          updateAllowDeveloperSetupFormAction(tenantId, prev, formData)
-        }
+        updateAllowDeveloperSetupFormAction={updateTenantDeveloperSetupFormAction}
       />
     </div>
   );

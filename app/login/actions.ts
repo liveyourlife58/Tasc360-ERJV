@@ -8,7 +8,7 @@ import { setSession } from "@/lib/auth";
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MINUTES = 15;
 
-export type LoginState = { error?: string };
+export type LoginState = { error?: string; redirect?: string; session?: { userId: string; tenantId: string; email: string; name?: string | null } };
 
 export async function login(
   _prev: LoginState | null,
@@ -87,19 +87,20 @@ export async function login(
     },
   });
 
-  await setSession({
-    userId: user.id,
-    tenantId: tenant.id,
-    email: user.email,
-    name: user.name ?? undefined,
-  });
-
   const { logAuditEvent } = await import("@/lib/audit");
   await logAuditEvent(tenant.id, "auth_login", { email: user.email }, user.id);
 
   const from = (formData.get("from") as string) || "/dashboard";
   const target = from.startsWith("/dashboard") ? from : "/dashboard";
-  redirect(target);
+  return {
+    redirect: target,
+    session: {
+      userId: user.id,
+      tenantId: tenant.id,
+      email: user.email,
+      name: user.name ?? undefined,
+    },
+  };
 }
 
 export async function logout() {
