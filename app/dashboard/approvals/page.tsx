@@ -1,12 +1,18 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getPendingApprovals } from "@/app/dashboard/actions";
 import { ApproveRejectForm } from "@/components/dashboard/ApproveRejectForm";
 
 export default async function ApprovalsPage() {
-  const tenantId = (await headers()).get("x-tenant-id");
-  if (!tenantId) redirect("/login");
+  const h = await headers();
+  const tenantId = h.get("x-tenant-id");
+  const userId = h.get("x-user-id");
+  if (!tenantId || !userId) redirect("/login");
+
+  const canRead = await hasPermission(userId, PERMISSIONS.entitiesRead);
+  if (!canRead) redirect("/dashboard");
 
   const { error, approvals } = await getPendingApprovals();
   const list = approvals ?? [];

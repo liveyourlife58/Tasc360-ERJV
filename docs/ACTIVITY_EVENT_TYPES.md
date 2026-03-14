@@ -20,6 +20,8 @@ The **Activity** log (Dashboard → Activity) and audit exports show records fro
 | **integration_disconnected** | Tenant disconnects an integration | `{ provider }` | User who disconnected |
 | **integration_sync_completed** | Sync job to/from an integration finished successfully | `{ provider, direction?, entityCount? }` | null (system) or user if manual |
 | **integration_sync_failed** | Sync job failed (e.g. API error) | `{ provider, error?, direction? }` | null (system) |
+| **journal_entry_created** | User creates a journal entry (Finance) | `{ journalEntryId, entryDate, lineCount }` | User who created |
+| **fiscal_period_closed** | User closes a fiscal period (Finance) | `{ fiscalPeriodId, periodStart, periodEnd }` | User who closed |
 
 ## Filtering
 

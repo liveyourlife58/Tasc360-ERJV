@@ -576,6 +576,55 @@ a {
   color: #6b7280;
 }
 
+.dashboard-table-link {
+  color: var(--dashboard-primary, #4f46e5);
+  text-decoration: none;
+}
+
+.dashboard-table-link:hover {
+  text-decoration: underline;
+}
+
+.journal-entry-detail.card {
+  padding: 1.25rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  max-width: 36rem;
+}
+
+.journal-entry-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 1.5rem;
+  font-size: 0.9375rem;
+}
+
+.journal-entry-meta dt {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.journal-entry-meta dd {
+  margin: 0;
+}
+
+.journal-entry-external-badge {
+  display: inline-block;
+  margin-right: 0.5rem;
+  padding: 0.15em 0.5em;
+  background: #e0e7ff;
+  color: #3730a3;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+}
+
+.journal-entry-external-id {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8125rem;
+  color: #6b7280;
+}
+
 /* Banner (e.g. payment past due) */
 .banner-warning {
   padding: 0.75rem 1rem;

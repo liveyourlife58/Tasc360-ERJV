@@ -95,15 +95,14 @@ export async function POST(
   for (const [key, value] of Object.entries(body)) {
     if (fieldSlugs.has(key)) data[key] = value;
   }
-  const searchText = Object.values(data)
-    .filter((v) => typeof v === "string" && v)
-    .join(" ");
+  const { buildSearchText } = await import("@/lib/search-text");
+  const searchText = buildSearchText(module_.name, data);
   const entity = await prisma.entity.create({
     data: {
       tenantId,
       moduleId: module_.id,
       data: data as object,
-      searchText: searchText.slice(0, 10000) || null,
+      searchText: searchText ? searchText.slice(0, 10000) : null,
     },
   });
   const requestId = request.headers.get("x-request-id") ?? undefined;
@@ -183,13 +182,11 @@ export async function PATCH(
     select: { id: true, data: true },
   });
   let updated = 0;
+  const { buildSearchText } = await import("@/lib/search-text");
   for (const entity of existing) {
     const current = (entity.data as Record<string, unknown>) ?? {};
     const merged = { ...current, ...dataPatch };
-    const searchText = Object.values(merged)
-      .filter((v) => typeof v === "string" && v)
-      .join(" ")
-      .slice(0, 10000) || null;
+    const searchText = buildSearchText(module_!.name, merged) || null;
     await prisma.entity.update({
       where: { id: entity.id },
       data: { data: merged as object, searchText },

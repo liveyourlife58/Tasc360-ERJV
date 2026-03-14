@@ -11,6 +11,17 @@ export const PERMISSIONS = {
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
+/** Human-readable labels for the role editor and docs. Add new permissions here and in PERMISSIONS. */
+export const PERMISSION_LABELS: Record<string, string> = {
+  [PERMISSIONS.entitiesRead]: "Read entities",
+  [PERMISSIONS.entitiesWrite]: "Create & edit entities",
+  [PERMISSIONS.modulesManage]: "Manage modules & fields",
+  [PERMISSIONS.viewsManage]: "Manage views",
+  [PERMISSIONS.settingsManage]: "Manage settings & billing",
+  [PERMISSIONS.usersManage]: "Manage users & roles",
+  "*": "Full access (admin)",
+};
+
 /** Load user's permission list from role. If no role, returns ["*"] (full access for backward compatibility). */
 export async function getPermissionsForUser(userId: string): Promise<string[]> {
   const user = await prisma.user.findUnique({

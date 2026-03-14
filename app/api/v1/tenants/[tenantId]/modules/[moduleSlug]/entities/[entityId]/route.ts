@@ -109,10 +109,8 @@ export async function PATCH(
     select: { data: true },
   });
   const merged = { ...((current?.data as Record<string, unknown>) ?? {}), ...data };
-  const searchText = Object.values(merged)
-    .filter((v) => typeof v === "string" && v)
-    .join(" ")
-    .slice(0, 10000) || null;
+  const { buildSearchText } = await import("@/lib/search-text");
+  const searchText = buildSearchText(module_.name, merged) || null;
   const entity = await prisma.entity.update({
     where: { id: entityId },
     data: { data: merged as object, searchText },

@@ -17,7 +17,9 @@ export type AuditEventType =
   | "entity_created"
   | "entity_updated"
   | "entity_deleted"
-  | "stripe_webhook_processed";
+  | "stripe_webhook_processed"
+  | "journal_entry_created"
+  | "fiscal_period_closed";
 
 export async function logAuditEvent(
   tenantId: string,

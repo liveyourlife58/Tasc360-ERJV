@@ -120,6 +120,7 @@ export async function createEntity(
     where: { id: ctx.moduleId },
     select: {
       slug: true,
+      name: true,
       fields: { orderBy: { sortOrder: "asc" }, select: { slug: true, fieldType: true } },
     },
   });
@@ -141,11 +142,8 @@ export async function createEntity(
     data[slug] = all.length ? all : null;
   }
 
-  const searchText = Object.values(data)
-    .flatMap((v) => (Array.isArray(v) ? v : [v]))
-    .filter((v): v is string => typeof v === "string" && v.length > 0)
-    .join(" ")
-    .slice(0, 10000) || null;
+  const { buildSearchText } = await import("@/lib/search-text");
+  const searchText = buildSearchText(moduleRow?.name ?? null, data) || null;
 
   const { mergeEntityPaymentType, parseDecimalToCents } = await import("@/lib/module-settings");
   const paymentTypeRaw = (formData.get("_paymentType") as string)?.trim() || "";
@@ -217,6 +215,7 @@ export async function updateEntity(
       metadata: true,
       module: {
         select: {
+          name: true,
           fields: { select: { slug: true, fieldType: true } },
         },
       },
@@ -241,11 +240,8 @@ export async function updateEntity(
     data[slug] = all.length ? all : null;
   }
 
-  const searchText = Object.values(data)
-    .flatMap((v) => (Array.isArray(v) ? v : [v]))
-    .filter((v): v is string => typeof v === "string" && v.length > 0)
-    .join(" ")
-    .slice(0, 10000) || null;
+  const { buildSearchText } = await import("@/lib/search-text");
+  const searchText = buildSearchText(existing.module?.name ?? null, data) || null;
 
   const { mergeEntityPaymentType, parseDecimalToCents } = await import("@/lib/module-settings");
   const paymentTypeRaw = (formData.get("_paymentType") as string)?.trim() || "";
@@ -275,7 +271,7 @@ export async function updateEntity(
     data: {
       data: data as object,
       metadata: metadata as object,
-      searchText: searchText != null ? searchText.slice(0, 10000) : null,
+      searchText: searchText || null,
     },
     include: { module: { select: { slug: true } } },
   });
@@ -296,7 +292,7 @@ export async function updateEntity(
   const { fireWebhook } = await import("@/lib/webhooks");
   fireWebhook(tenantId, "entity.updated", { entityId: entity.id, moduleId: entity.moduleId, data: data as object });
   const { upsertEmbeddingForEntity } = await import("@/lib/embeddings");
-  upsertEmbeddingForEntity(tenantId, entity.id, searchText != null ? searchText.slice(0, 10000) : "").catch(() => {});
+  upsertEmbeddingForEntity(tenantId, entity.id, searchText || "").catch(() => {});
 
   const slug = entity.module?.slug ?? "";
   revalidatePath(`/dashboard/m/${slug}`);
@@ -690,6 +686,34 @@ export async function restoreEntity(entityId: string, moduleSlug: string): Promi
   redirect(`/dashboard/m/${moduleSlug}`);
 }
 
+/** Format entity data as "field: value" lines for LLM context. Use fieldLabels (slug -> display name) when provided. */
+function formatEntityDataForContext(
+  data: Record<string, unknown>,
+  options: { maxLength?: number; fieldLabels?: Record<string, string> } = {}
+): string {
+  const { maxLength = 1200, fieldLabels = {} } = options;
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(data)) {
+    const label = fieldLabels[key] ?? key;
+    if (value == null || value === "") {
+      lines.push(`${label}: —`);
+    } else if (typeof value === "string") {
+      lines.push(`${label}: ${value.trim().slice(0, 200)}`);
+    } else if (typeof value === "number" && !Number.isNaN(value)) {
+      lines.push(`${label}: ${value}`);
+    } else if (typeof value === "boolean") {
+      lines.push(`${label}: ${value ? "yes" : "no"}`);
+    } else if (Array.isArray(value)) {
+      const arrStr = value.map((v) => (typeof v === "string" ? v : String(v))).join(", ");
+      lines.push(`${label}: ${arrStr.slice(0, 150)}`);
+    } else if (typeof value === "object") {
+      lines.push(`${label}: ${JSON.stringify(value).slice(0, 150)}`);
+    }
+  }
+  const text = lines.join("\n");
+  return text.slice(0, maxLength);
+}
+
 /** Ask AI: full-text search for relevant entities, then answer the question using that context (RAG). */
 export async function askDashboardAi(
   question: string,
@@ -710,12 +734,63 @@ export async function askDashboardAi(
     });
     moduleId = mod?.id;
   }
-  const results = await searchEntitiesHybrid(tenantId, q, { moduleId, limit: 15 });
+  let results = await searchEntitiesHybrid(tenantId, q, { moduleId, limit: 15 });
   const modules = await prisma.module.findMany({
     where: { tenantId },
-    select: { id: true, name: true, slug: true },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      fields: { select: { slug: true, name: true }, orderBy: { sortOrder: "asc" } },
+    },
   });
   const moduleById = new Map(modules.map((m) => [m.id, m]));
+  const fieldLabelsByModuleId = new Map<string, Record<string, string>>();
+  for (const m of modules) {
+    const labels: Record<string, string> = {};
+    for (const f of m.fields) {
+      labels[f.slug] = f.name;
+    }
+    fieldLabelsByModuleId.set(m.id, labels);
+  }
+
+  let fallbackNote = "";
+  if (results.length === 0) {
+    const fallback = await prisma.entity.findMany({
+      where: { tenantId, deletedAt: null, ...(moduleId ? { moduleId } : {}) },
+      orderBy: { updatedAt: "desc" },
+      take: 15,
+      select: { id: true, data: true, searchText: true, moduleId: true },
+    });
+    results = fallback.map((e) => ({
+      entityId: e.id,
+      moduleId: e.moduleId,
+      data: (e.data as Record<string, unknown>) ?? {},
+      searchText: e.searchText,
+    }));
+    if (results.length === 0) {
+      const moduleName = moduleId ? moduleById.get(moduleId)?.name : null;
+      const noDataMessage = moduleName
+        ? `There are no records in the ${moduleName} module yet. Add some, then try asking again.`
+        : "There are no records in your workspace yet. Add some data, then try asking again.";
+      return { answer: noDataMessage, citedRecords: undefined };
+    }
+    fallbackNote =
+      "No keyword or semantic match for the question. Below are some recent records for context. Answer from this if possible, or say what you cannot infer.\n\n";
+  }
+
+  const moduleCounts = new Map<string, number>();
+  for (const r of results) {
+    const mod = r.moduleId ? moduleById.get(r.moduleId) : null;
+    const name = mod ? mod.name : "Record";
+    moduleCounts.set(name, (moduleCounts.get(name) ?? 0) + 1);
+  }
+  const summaryLine =
+    moduleCounts.size > 0
+      ? `Records in context: ${Array.from(moduleCounts.entries())
+          .map(([name, n]) => `${n} ${name}`)
+          .join(", ")}.\n\n`
+      : "";
 
   const contextParts: string[] = [];
   const citedRecords: { entityId: string; moduleSlug: string; moduleName: string }[] = [];
@@ -724,25 +799,49 @@ export async function askDashboardAi(
     const label = mod ? mod.name : "Record";
     const slug = mod?.slug ?? "";
     citedRecords.push({ entityId: r.entityId, moduleSlug: slug, moduleName: label });
-    const text = (r.searchText ?? Object.values(r.data).filter((v) => typeof v === "string").join(" ")).slice(0, 500);
-    contextParts.push(`[${label} ${r.entityId}]\n${text}`);
+    const fieldLabels = r.moduleId ? fieldLabelsByModuleId.get(r.moduleId) : undefined;
+    const fieldsText = formatEntityDataForContext(r.data, { fieldLabels });
+    contextParts.push(`[${label} ${r.entityId}]\n${fieldsText}`);
   }
-  const context = contextParts.length > 0 ? contextParts.join("\n\n") : "No relevant records found.";
+  const context =
+    contextParts.length > 0
+      ? fallbackNote + summaryLine + contextParts.join("\n\n")
+      : "No records in this workspace.";
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { error: "AI is not configured (OPENAI_API_KEY)." };
   const { OpenAI } = await import("openai");
   const client = new OpenAI({ apiKey });
-  const sys = "You are an assistant for this workspace. Answer the user's question based only on the provided context (relevant records). If the context does not contain enough information, say so. Be concise.";
-  const res = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: sys },
-      { role: "user", content: `Context:\n${context}\n\nQuestion: ${q}` },
-    ],
-  });
-  const answer = res.choices[0]?.message?.content?.trim() ?? "I couldn't generate an answer.";
-  return { answer, citedRecords: citedRecords.length > 0 ? citedRecords : undefined };
+  const viewingModuleName = moduleId ? moduleById.get(moduleId)?.name : null;
+  let sys =
+    "You are an assistant for this workspace. Answer the user's question using only the provided context (record fields and values). Use the exact field names and values from the context. If the context does not contain the information, say so. Be concise.";
+  if (viewingModuleName) {
+    sys += ` The user is currently viewing the ${viewingModuleName} module.`;
+  }
+  try {
+    const res = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: sys },
+        { role: "user", content: `Context:\n${context}\n\nQuestion: ${q}` },
+      ],
+    });
+    const answer = res.choices[0]?.message?.content?.trim() ?? "I couldn't generate an answer.";
+    return { answer, citedRecords: citedRecords.length > 0 ? citedRecords : undefined };
+  } catch (err) {
+    const status = (err as { status?: number })?.status;
+    const message = (err as Error)?.message ?? "";
+    if (status === 429 || message.toLowerCase().includes("rate limit")) {
+      return { error: "The AI service is busy. Please try again in a minute." };
+    }
+    if (status === 401 || status === 403 || message.toLowerCase().includes("invalid") || message.toLowerCase().includes("api key")) {
+      return { error: "AI is not configured or the API key is invalid. Check OPENAI_API_KEY." };
+    }
+    if (message.toLowerCase().includes("timeout") || message.toLowerCase().includes("econnreset")) {
+      return { error: "The request timed out. Please try again." };
+    }
+    return { error: "The AI service is temporarily unavailable. Please try again in a moment." };
+  }
 }
 
 /** List pending approvals for the tenant. */
@@ -1022,12 +1121,84 @@ export async function getTenantExportData(): Promise<{ error?: string; data?: Re
       createdAt: e.createdAt.toISOString(),
     }));
   }
+
+  const [journalEntriesExport, exchangeRates, fiscalPeriods] = await Promise.all([
+    prisma.journalEntry.findMany({
+      where: { tenantId },
+      orderBy: { entryDate: "desc" },
+      select: {
+        id: true,
+        entryDate: true,
+        reference: true,
+        description: true,
+        status: true,
+        ledgerEntityId: true,
+        externalId: true,
+        createdBy: true,
+        createdAt: true,
+        lines: {
+          select: {
+            accountEntityId: true,
+            debitCents: true,
+            creditCents: true,
+            currency: true,
+            description: true,
+          },
+        },
+      },
+    }),
+    prisma.exchangeRate.findMany({
+      where: { tenantId },
+      orderBy: { effectiveDate: "desc" },
+      select: { fromCurrency: true, toCurrency: true, rate: true, effectiveDate: true },
+    }),
+    prisma.fiscalPeriod.findMany({
+      where: { tenantId },
+      orderBy: { periodStart: "desc" },
+      select: { periodStart: true, periodEnd: true, closedAt: true, closedBy: true },
+    }),
+  ]);
+
+  const journalEntries = journalEntriesExport.map((je) => ({
+    id: je.id,
+    entryDate: je.entryDate.toISOString().slice(0, 10),
+    reference: je.reference,
+    description: je.description,
+    status: je.status,
+    ledgerEntityId: je.ledgerEntityId,
+    externalId: je.externalId,
+    createdBy: je.createdBy,
+    createdAt: je.createdAt.toISOString(),
+    lines: je.lines.map((l) => ({
+      accountEntityId: l.accountEntityId,
+      debitCents: l.debitCents,
+      creditCents: l.creditCents,
+      currency: l.currency,
+      description: l.description,
+    })),
+  }));
+
   const data = {
     exportVersion: 1,
     exportedAt: new Date().toISOString(),
     tenantId,
     modules: exportModules,
     entitiesByModule,
+    finance: {
+      journalEntries,
+      exchangeRates: exchangeRates.map((r) => ({
+        fromCurrency: r.fromCurrency,
+        toCurrency: r.toCurrency,
+        rate: Number(r.rate),
+        effectiveDate: r.effectiveDate.toISOString().slice(0, 10),
+      })),
+      fiscalPeriods: fiscalPeriods.map((p) => ({
+        periodStart: p.periodStart.toISOString().slice(0, 10),
+        periodEnd: p.periodEnd.toISOString().slice(0, 10),
+        closedAt: p.closedAt?.toISOString() ?? null,
+        closedBy: p.closedBy ?? null,
+      })),
+    },
   };
   return { data };
 }

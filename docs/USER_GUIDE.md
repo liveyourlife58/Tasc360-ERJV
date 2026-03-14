@@ -14,13 +14,14 @@ This guide explains how to use the dashboard and your public site. You can manag
 6. [Approvals](#approvals)
 7. [Activity (audit log)](#activity-audit-log)
 8. [Finance](#finance)
-9. [Team (users and roles)](#team-users-and-roles)
-10. [Subscription and billing](#subscription-and-billing)
-11. [Settings](#settings)
-12. [Ask about your data (AI)](#ask-about-your-data-ai)
-13. [Export and import](#export-and-import)
-14. [Your public customer site](#your-public-customer-site)
-15. [Permissions](#permissions)
+9. [Integrations](#integrations)
+10. [Team (users and roles)](#team-users-and-roles)
+11. [Subscription and billing](#subscription-and-billing)
+12. [Settings](#settings)
+13. [Ask about your data (AI)](#ask-about-your-data-ai)
+14. [Export and import](#export-and-import)
+15. [Your public customer site](#your-public-customer-site)
+16. [Permissions](#permissions)
 
 ---
 
@@ -29,7 +30,7 @@ This guide explains how to use the dashboard and your public site. You can manag
 After you log in, you land in the **dashboard**. The sidebar on the left is your main navigation:
 
 - **Workspace**: **Home** plus each of your **modules** (e.g. Customers, Jobs, Invoices).
-- **Settings & billing**: Approvals, Activity, Finance, Team, Subscription & billing, Settings.
+- **Settings & billing**: Approvals, Activity, Finance, Integrations, Team, Subscription & billing, Settings.
 - **Footer**: **Preview site** (opens your public site in a new tab) and **Log out**.
 
 If you have no modules yet, the home page will prompt you to **start from a template** or **describe what you need** so the app can suggest modules. You can also create a custom module by describing it in plain language.
@@ -195,6 +196,7 @@ The **Finance** area is for accounting and reporting: ledgers, journal entries, 
 ### Journal entries
 
 - **New journal entry**: choose date, reference, description, and add **lines**. Each line has an account (entity), debit or credit amount, and optional memo.
+- From the Finance page, click a journal entry **date** to open its **detail**: view all lines and totals. If the entry was synced to an external system (e.g. QuickBooks), that is shown there too.
 - Journal entries can be in different **currencies** if you use multi-currency (exchange rates).
 
 ### Exchange rates
@@ -208,6 +210,16 @@ Define **fiscal periods** (start/end dates). You can **close** a period so no fu
 ### Permissions
 
 Finance pages may be restricted to users with **settings** or **finance** permissions; ask your admin if you don’t see them.
+
+---
+
+## Integrations
+
+**Integrations** is where you connect external services (e.g. accounting software) to your workspace.
+
+- Open **Integrations** from the sidebar to see connected services and their status.
+- When connect flows are available (e.g. QuickBooks Online), you will be able to link your account from this page; the app will then be able to sync data (e.g. journal entries, customers) according to the integration.
+- If your administrator has not enabled integration encryption for the platform, the page will show a short note; connect buttons appear once that is configured.
 
 ---
 
@@ -294,7 +306,7 @@ You need **read** permission on entities to use this.
 
 ### Export
 
-- From **Home**, use **Export** to download a **JSON file** of your workspace data (modules, entities, relationships, etc.). Use this for backups or to move data to another workspace.
+- From **Home**, use **Export** to download a **JSON file** of your workspace data: modules, entities, relationships, and **finance data** (journal entries with lines, exchange rates, fiscal periods). Use this for backups or to move data to another workspace.
 
 ### Import
 
@@ -323,13 +335,14 @@ Your workspace has a **public site** where your customers can:
 
 What you can see and do depends on your **role** and its **permissions**. For example:
 
-- **Read entities**: view module lists and record details.
-- **Manage entities**: create, edit, delete, restore records.
+- **Read entities**: view module lists and record details; Activity log and Approvals page; export (backup).
+- **Manage entities**: create, edit, delete, restore records; request approvals; approve or reject; record or revoke consent.
+- **Manage views**: create, edit, delete views; set filters, sort, and default view.
 - **Manage modules/fields**: create or edit modules and fields (often admin only).
-- **Manage users**: invite users, edit roles, assign permissions.
-- **Manage settings**: change workspace settings, API keys, webhooks, billing.
+- **Manage users**: invite users, edit roles, assign permissions (Team page).
+- **Manage settings**: change workspace settings, API keys, webhooks, billing; Finance and Integrations pages.
 
-If you don’t see a menu item or get an error when performing an action, your role may not have the required permission. Ask an administrator to adjust your role or create a new one.
+If you don’t see a menu item or get an error when performing an action, your role may not have the required permission. Ask an administrator to adjust your role or create a new one. Administrators can refer to the full permission list and default roles in the platform documentation.
 
 ---
 

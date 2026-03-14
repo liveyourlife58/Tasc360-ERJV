@@ -3,17 +3,7 @@
 import { useState } from "react";
 import { useActionState } from "react";
 import { createRole, updateRole } from "./actions";
-import { PERMISSIONS } from "@/lib/permissions";
-
-const PERMISSION_LABELS: Record<string, string> = {
-  [PERMISSIONS.entitiesRead]: "Read entities",
-  [PERMISSIONS.entitiesWrite]: "Create & edit entities",
-  [PERMISSIONS.modulesManage]: "Manage modules & fields",
-  [PERMISSIONS.viewsManage]: "Manage views",
-  [PERMISSIONS.settingsManage]: "Manage settings & billing",
-  [PERMISSIONS.usersManage]: "Manage users & roles",
-  "*": "Full access (admin)",
-};
+import { PERMISSION_LABELS } from "@/lib/permissions";
 
 type RoleRow = {
   id: string;

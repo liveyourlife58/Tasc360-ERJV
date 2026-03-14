@@ -25,7 +25,7 @@ export function AskAiForm({ moduleSlug }: { moduleSlug?: string | null }) {
     <section className="ask-ai-section" style={{ marginBottom: "1.5rem" }}>
       <h2 className="subscription-subheading">Ask about your data</h2>
       <p style={{ fontSize: "0.9375rem", color: "#64748b", marginBottom: "0.75rem" }}>
-        Ask a question in plain language. Results are based on full-text search across your records.
+        Ask in plain language (e.g. &quot;Which customers have email at gmail?&quot; or &quot;List open projects&quot;). Results use full-text and semantic search; if nothing matches, recent records are used as context.
       </p>
       <form action={formAction} className="ai-generate-form" style={{ maxWidth: 560 }}>
         <div className="form-group">

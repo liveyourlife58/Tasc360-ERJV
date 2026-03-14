@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
+import { logAuditEvent } from "@/lib/audit";
 
 async function requireFinancePermission() {
   const tenantId = (await headers()).get("x-tenant-id");
@@ -109,7 +110,7 @@ export async function createJournalEntry(
     if (!ledger) return { error: "Invalid ledger." };
   }
 
-  await prisma.journalEntry.create({
+  const created = await prisma.journalEntry.create({
     data: {
       tenantId,
       ledgerEntityId: ledgerEntityId || undefined,
@@ -129,6 +130,11 @@ export async function createJournalEntry(
       },
     },
   });
+  await logAuditEvent(tenantId, "journal_entry_created", {
+    journalEntryId: created.id,
+    entryDate: entryDate.toISOString().slice(0, 10),
+    lineCount: validLines.length,
+  }, userId, null);
   revalidatePath("/dashboard/finance");
   revalidatePath("/dashboard/finance/journal");
   return {};
@@ -238,6 +244,11 @@ export async function closeFiscalPeriod(periodId: string): Promise<{ error?: str
     where: { id: periodId },
     data: { closedAt: new Date(), closedBy: userId },
   });
+  await logAuditEvent(tenantId, "fiscal_period_closed", {
+    fiscalPeriodId: periodId,
+    periodStart: period.periodStart.toISOString().slice(0, 10),
+    periodEnd: period.periodEnd.toISOString().slice(0, 10),
+  }, userId, null);
   revalidatePath("/dashboard/finance");
   return {};
 }

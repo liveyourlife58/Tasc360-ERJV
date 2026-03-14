@@ -170,7 +170,11 @@ export default async function FinancePage() {
             ) : (
               journalEntries.map((je) => (
                 <tr key={je.id}>
-                  <td>{formatDate(je.entryDate, locale)}</td>
+                  <td>
+                    <Link href={`/dashboard/finance/journal/${je.id}`} className="dashboard-table-link">
+                      {formatDate(je.entryDate, locale)}
+                    </Link>
+                  </td>
                   <td>{je.reference ?? "—"}</td>
                   <td style={{ maxWidth: "12rem", overflow: "hidden", textOverflow: "ellipsis" }}>{je.description ?? "—"}</td>
                   <td>{je.status}</td>
