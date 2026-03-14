@@ -2,7 +2,7 @@
 
 This document tracks what is **done** vs **still missing or partial** relative to the database schema and product plan. Use it to prioritize next work.
 
-**Last updated:** File field sync to `files` table, Edit View filter/sort UI, Consent UI (types in Settings + Consent page with list/revoke/grant), Users & roles and Feature flags marked done. Earlier: Team page, E2E smoke tests, auth 429 UX, health/ready, maintenance mode, Stripe idempotency, etc.
+**Last updated:** Integration prep: Integration table, JournalEntry.externalId, credentials encryption (`lib/integration-credentials.ts`), external-ids helpers (`lib/external-ids.ts`), integration audit event types, dashboard Integrations page (placeholder). Earlier: File field sync, Edit View filter/sort, Consent UI, Users & roles, Feature flags, Team page, E2E smoke tests, etc.
 
 ---
 
@@ -24,6 +24,7 @@ This document tracks what is **done** vs **still missing or partial** relative t
 | **Files** | **Done** | File-type fields use BlobUploadInput; on entity create/update, URLs are synced to `files` table (one row per field, `metadata.fieldSlug`). |
 | **Users & roles (admin)** | **Done** | **Team** page: list users, invite, edit user (role, active), create/edit roles and permissions. |
 | **Consent** | **Done** | Settings → Consent types (comma-separated). **Consent** page: list consents (filter by user/type), revoke, grant (record consent). |
+| **Integrations** | Prep done | Integration table, JE externalId, credentials encryption, external-ids helpers, audit event types. **Integrations** page lists connections; connect flows (e.g. QuickBooks) to be added. |
 | **Other domain tables** | As needed | Approval (UI done), TimeEntry, JournalEntry (UI done), recurring, etc. — add UI as needed. |
 
 ---

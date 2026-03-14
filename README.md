@@ -244,6 +244,7 @@ Key docs in `docs/`:
 | [SECURITY.md](docs/SECURITY.md), [SCALABILITY_PERFORMANCE.md](docs/SCALABILITY_PERFORMANCE.md), [DATABASE_DESIGN.md](docs/DATABASE_DESIGN.md) | Security, scaling, and schema depth. |
 | [ACTIVITY_EVENT_TYPES.md](docs/ACTIVITY_EVENT_TYPES.md) | Event types in the Activity / audit log (dashboard and API). |
 | [USER_GUIDE.md](docs/USER_GUIDE.md) | End-user guide: how to use the dashboard and public site (also shown in-app at **Help**). |
+| [QBO_INTEGRATION_READINESS.md](docs/QBO_INTEGRATION_READINESS.md) | Prepared for QuickBooks Online: Integration table, external ID convention, mapping plan. |
 
 ## Seed (optional)
 

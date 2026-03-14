@@ -60,6 +60,7 @@ model Tenant {
   webhookRetries     WebhookRetry[]
   idempotencyKeys    IdempotencyKey[]
   apiKeys            ApiKey[]
+  integrations       Integration[]
 
   @@index([slug], map: "idx_tenants_slug")
   @@index([parentTenantId], map: "idx_tenants_parent")
@@ -145,6 +146,28 @@ model ApiKey {
   @@unique([keyPrefix], map: "api_keys_key_prefix_unique")
   @@index([tenantId], map: "idx_api_keys_tenant_id")
   @@map("api_keys")
+}
+
+// =============================================================================
+// INTEGRATIONS (per-tenant, per-provider: QBO, etc.)
+// Store config (e.g. realmId) and optional encrypted tokens. One row per tenant per provider.
+// =============================================================================
+
+model Integration {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  provider           String   @db.VarChar(50)   // e.g. qbo, xero
+  config             Json?   @default("{}")    // realmId, sync preferences, etc.
+  credentialsEncrypted String? @map("credentials_encrypted") @db.Text  // OAuth tokens etc.; encrypt at rest
+  lastSyncedAt       DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider], map: "integrations_tenant_provider_unique")
+  @@index([tenantId], map: "idx_integrations_tenant_id")
+  @@map("integrations")
 }
 
 // =============================================================================
@@ -368,6 +391,8 @@ model JournalEntry {
   tenantId    String   @map("tenant_id") @db.Uuid
   /// Optional: ledger entity (module "Ledger") for multi-ledger tenants (e.g. by region/brand). Null = default ledger.
   ledgerEntityId String? @map("ledger_entity_id") @db.Uuid
+  /// External system id (e.g. QuickBooks JournalEntry id) for sync and idempotency.
+  externalId  String?  @map("external_id") @db.VarChar(255)
   entryDate   DateTime @map("entry_date") @db.Date
   reference   String?  @db.VarChar(255)
   description String?  @db.Text
@@ -384,6 +409,7 @@ model JournalEntry {
   @@index([tenantId, ledgerEntityId], map: "idx_journal_entries_tenant_ledger")
   @@index([tenantId, entryDate], map: "idx_journal_entries_tenant_date")
   @@index([tenantId, status], map: "idx_journal_entries_tenant_status")
+  @@index([tenantId, externalId], map: "idx_journal_entries_tenant_external")
   @@map("journal_entries")
 }
 

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useActionState } from "react";
+import { createPortal } from "react-dom";
 import { EditViewForm } from "@/components/dashboard/EditViewForm";
 
 type ViewItem = {
@@ -124,56 +125,58 @@ export function ViewSelector({
         )}
       </div>
 
-      {editViewsOpen && (
-        <div
-          className="settings-modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Edit views"
-          onClick={(e) => e.target === e.currentTarget && closeModal(setEditViewsOpen, setEditingViewId)}
-        >
-          <div className="settings-modal">
-            <div className="settings-modal-header">
-              <h2 className="settings-modal-title">
-                {editingView ? `Edit view: ${editingView.name}` : "Edit views"}
-              </h2>
-              <button
-                type="button"
-                onClick={() => editingViewId ? setEditingViewId(null) : closeModal(setEditViewsOpen, setEditingViewId)}
-                className="settings-modal-close"
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-            <div className="settings-modal-content">
-              {editingView ? (
-                <div className="edit-views-form-panel">
-                  <button
-                    type="button"
-                    className="btn btn-secondary edit-views-back"
-                    onClick={() => setEditingViewId(null)}
-                  >
-                    ← Back to list
-                  </button>
-                  <EditViewForm
-                    viewId={editingView.id}
-                    moduleSlug={moduleSlug}
-                    initialName={editingView.name}
-                    initialColumns={editingView.columns}
-                    initialViewType={(editingView.viewType === "board" || editingView.viewType === "calendar" ? editingView.viewType : "list") as "list" | "board" | "calendar"}
-                    initialBoardColumnField={(editingView.settings as { boardColumnField?: string })?.boardColumnField ?? null}
-                    initialDateField={(editingView.settings as { dateField?: string })?.dateField ?? null}
-                    initialFilter={Array.isArray(editingView.filter) ? editingView.filter : []}
-                    initialSort={Array.isArray(editingView.sort) ? editingView.sort : []}
-                    fieldSlugs={fieldSlugs}
-                    selectFieldSlugs={selectFieldSlugs ?? []}
-                    dateFieldSlugs={dateFieldSlugs ?? []}
-                    action={updateViewAction.bind(null, editingView.id, moduleSlug)}
-                    deleteAction={deleteViewAction.bind(null, editingView.id, moduleSlug)}
-                  />
-                </div>
-              ) : (
+      {editViewsOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="settings-modal-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit views"
+            onClick={(e) => e.target === e.currentTarget && closeModal(setEditViewsOpen, setEditingViewId)}
+          >
+            <div className="settings-modal">
+              <div className="settings-modal-header">
+                <h2 className="settings-modal-title">
+                  {editingView ? `Edit view: ${editingView.name}` : "Edit views"}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => editingViewId ? setEditingViewId(null) : closeModal(setEditViewsOpen, setEditingViewId)}
+                  className="settings-modal-close"
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="settings-modal-content">
+                {editingView ? (
+                  <div className="edit-views-form-panel">
+                    <button
+                      type="button"
+                      className="btn btn-secondary edit-views-back"
+                      onClick={() => setEditingViewId(null)}
+                    >
+                      ← Back to list
+                    </button>
+                    <EditViewForm
+                      viewId={editingView.id}
+                      moduleSlug={moduleSlug}
+                      initialName={editingView.name}
+                      initialColumns={editingView.columns}
+                      initialViewType={(editingView.viewType === "board" || editingView.viewType === "calendar" ? editingView.viewType : "list") as "list" | "board" | "calendar"}
+                      initialBoardColumnField={(editingView.settings as { boardColumnField?: string })?.boardColumnField ?? null}
+                      initialDateField={(editingView.settings as { dateField?: string })?.dateField ?? null}
+                      initialFilter={Array.isArray(editingView.filter) ? editingView.filter : []}
+                      initialSort={Array.isArray(editingView.sort) ? editingView.sort : []}
+                      fieldSlugs={fieldSlugs}
+                      selectFieldSlugs={selectFieldSlugs ?? []}
+                      dateFieldSlugs={dateFieldSlugs ?? []}
+                      action={updateViewAction.bind(null, editingView.id, moduleSlug)}
+                      deleteAction={deleteViewAction.bind(null, editingView.id, moduleSlug)}
+                    />
+                  </div>
+                ) : (
                 <div className="edit-views-list">
                   {views.length === 0 ? (
                     <p className="edit-views-empty">No views yet. Create one with “Create view with AI”.</p>
@@ -216,10 +219,11 @@ export function ViewSelector({
                   )}
                 </div>
               )}
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

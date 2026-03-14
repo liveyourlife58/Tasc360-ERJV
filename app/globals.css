@@ -506,6 +506,76 @@ a {
   color: #64748b;
 }
 
+.page-description {
+  margin-bottom: 1rem;
+  font-size: 0.9375rem;
+  color: #64748b;
+}
+
+.integrations-admin-hint {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: #0c4a6e;
+}
+
+.integrations-admin-hint code {
+  background: #e0f2fe;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+.integrations-empty.card,
+.integrations-list.card {
+  padding: 1.25rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  max-width: 36rem;
+}
+
+.integrations-empty-title {
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.integrations-empty-text,
+.integrations-empty-hint {
+  font-size: 0.9375rem;
+  color: #64748b;
+  margin-top: 0.5rem;
+}
+
+.integrations-list-ul {
+  list-style: none;
+}
+
+.integrations-list-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.integrations-list-item:last-child {
+  border-bottom: none;
+}
+
+.integrations-list-provider {
+  font-weight: 500;
+}
+
+.integrations-list-meta {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
 /* Banner (e.g. payment past due) */
 .banner-warning {
   padding: 0.75rem 1rem;
@@ -1460,7 +1530,7 @@ a {
 .settings-modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;

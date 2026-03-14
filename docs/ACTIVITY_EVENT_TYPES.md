@@ -16,6 +16,10 @@ The **Activity** log (Dashboard → Activity) and audit exports show records fro
 | **entity_updated** | Entity updated (dashboard or **API**). Bulk API updates: one event with `updatedCount` and `entityIds`. | Dashboard: entity metadata. API single: `{ source: "api", moduleSlug?, apiKeyPrefix? }`. API bulk: `{ source: "api", apiKeyPrefix?, moduleSlug?, updatedCount, entityIds }` | Dashboard user, or null for API |
 | **entity_deleted** | Entity soft-deleted (dashboard or **API**) | Dashboard: entity metadata. API: `{ source: "api", moduleSlug?, apiKeyPrefix? }` | Dashboard user, or null for API |
 | **stripe_webhook_processed** | Stripe webhook (platform or Connect) processed successfully | `{ stripeEventId, type }` (Stripe event id and type) | null (system) |
+| **integration_connected** | Tenant connects an integration (e.g. QuickBooks Online) | `{ provider }` (e.g. qbo) | User who connected |
+| **integration_disconnected** | Tenant disconnects an integration | `{ provider }` | User who disconnected |
+| **integration_sync_completed** | Sync job to/from an integration finished successfully | `{ provider, direction?, entityCount? }` | null (system) or user if manual |
+| **integration_sync_failed** | Sync job failed (e.g. API error) | `{ provider, error?, direction? }` | null (system) |
 
 ## Filtering
 

@@ -83,6 +83,9 @@ export async function Sidebar({
             <Link href="/dashboard/finance" className={isActive("/dashboard/finance", pathname) ? "active" : undefined}>
               Finance
             </Link>
+            <Link href="/dashboard/integrations" className={isActive("/dashboard/integrations", pathname) ? "active" : undefined}>
+              Integrations
+            </Link>
             <Link href="/dashboard/team" className={isActive("/dashboard/team", pathname) ? "active" : undefined}>
               Team
             </Link>
