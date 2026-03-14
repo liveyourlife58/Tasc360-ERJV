@@ -686,34 +686,6 @@ export async function restoreEntity(entityId: string, moduleSlug: string): Promi
   redirect(`/dashboard/m/${moduleSlug}`);
 }
 
-/** Format entity data as "field: value" lines for LLM context. Use fieldLabels (slug -> display name) when provided. */
-function formatEntityDataForContext(
-  data: Record<string, unknown>,
-  options: { maxLength?: number; fieldLabels?: Record<string, string> } = {}
-): string {
-  const { maxLength = 1200, fieldLabels = {} } = options;
-  const lines: string[] = [];
-  for (const [key, value] of Object.entries(data)) {
-    const label = fieldLabels[key] ?? key;
-    if (value == null || value === "") {
-      lines.push(`${label}: —`);
-    } else if (typeof value === "string") {
-      lines.push(`${label}: ${value.trim().slice(0, 200)}`);
-    } else if (typeof value === "number" && !Number.isNaN(value)) {
-      lines.push(`${label}: ${value}`);
-    } else if (typeof value === "boolean") {
-      lines.push(`${label}: ${value ? "yes" : "no"}`);
-    } else if (Array.isArray(value)) {
-      const arrStr = value.map((v) => (typeof v === "string" ? v : String(v))).join(", ");
-      lines.push(`${label}: ${arrStr.slice(0, 150)}`);
-    } else if (typeof value === "object") {
-      lines.push(`${label}: ${JSON.stringify(value).slice(0, 150)}`);
-    }
-  }
-  const text = lines.join("\n");
-  return text.slice(0, maxLength);
-}
-
 /** Ask AI: full-text search for relevant entities, then answer the question using that context (RAG). */
 export async function askDashboardAi(
   question: string,
@@ -725,99 +697,22 @@ export async function askDashboardAi(
   const q = (question ?? "").trim();
   if (!q) return { error: "Please enter a question." };
 
-  const { searchEntitiesHybrid } = await import("@/lib/search");
-  let moduleId: string | undefined;
-  if (moduleSlug) {
-    const mod = await prisma.module.findFirst({
-      where: { tenantId, slug: moduleSlug, isActive: true },
-      select: { id: true },
-    });
-    moduleId = mod?.id;
+  const { buildAskAiContext } = await import("@/lib/ask-ai-context");
+  const built = await buildAskAiContext(tenantId, q, moduleSlug);
+  if ("noData" in built && built.noData) {
+    return { answer: built.message, citedRecords: undefined };
   }
-  let results = await searchEntitiesHybrid(tenantId, q, { moduleId, limit: 15 });
-  const modules = await prisma.module.findMany({
-    where: { tenantId },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      fields: { select: { slug: true, name: true }, orderBy: { sortOrder: "asc" } },
-    },
-  });
-  const moduleById = new Map(modules.map((m) => [m.id, m]));
-  const fieldLabelsByModuleId = new Map<string, Record<string, string>>();
-  for (const m of modules) {
-    const labels: Record<string, string> = {};
-    for (const f of m.fields) {
-      labels[f.slug] = f.name;
-    }
-    fieldLabelsByModuleId.set(m.id, labels);
-  }
-
-  let fallbackNote = "";
-  if (results.length === 0) {
-    const fallback = await prisma.entity.findMany({
-      where: { tenantId, deletedAt: null, ...(moduleId ? { moduleId } : {}) },
-      orderBy: { updatedAt: "desc" },
-      take: 15,
-      select: { id: true, data: true, searchText: true, moduleId: true },
-    });
-    results = fallback.map((e) => ({
-      entityId: e.id,
-      moduleId: e.moduleId,
-      data: (e.data as Record<string, unknown>) ?? {},
-      searchText: e.searchText,
-    }));
-    if (results.length === 0) {
-      const moduleName = moduleId ? moduleById.get(moduleId)?.name : null;
-      const noDataMessage = moduleName
-        ? `There are no records in the ${moduleName} module yet. Add some, then try asking again.`
-        : "There are no records in your workspace yet. Add some data, then try asking again.";
-      return { answer: noDataMessage, citedRecords: undefined };
-    }
-    fallbackNote =
-      "No keyword or semantic match for the question. Below are some recent records for context. Answer from this if possible, or say what you cannot infer.\n\n";
-  }
-
-  const moduleCounts = new Map<string, number>();
-  for (const r of results) {
-    const mod = r.moduleId ? moduleById.get(r.moduleId) : null;
-    const name = mod ? mod.name : "Record";
-    moduleCounts.set(name, (moduleCounts.get(name) ?? 0) + 1);
-  }
-  const summaryLine =
-    moduleCounts.size > 0
-      ? `Records in context: ${Array.from(moduleCounts.entries())
-          .map(([name, n]) => `${n} ${name}`)
-          .join(", ")}.\n\n`
-      : "";
-
-  const contextParts: string[] = [];
-  const citedRecords: { entityId: string; moduleSlug: string; moduleName: string }[] = [];
-  for (const r of results) {
-    const mod = r.moduleId ? moduleById.get(r.moduleId) : null;
-    const label = mod ? mod.name : "Record";
-    const slug = mod?.slug ?? "";
-    citedRecords.push({ entityId: r.entityId, moduleSlug: slug, moduleName: label });
-    const fieldLabels = r.moduleId ? fieldLabelsByModuleId.get(r.moduleId) : undefined;
-    const fieldsText = formatEntityDataForContext(r.data, { fieldLabels });
-    contextParts.push(`[${label} ${r.entityId}]\n${fieldsText}`);
-  }
-  const context =
-    contextParts.length > 0
-      ? fallbackNote + summaryLine + contextParts.join("\n\n")
-      : "No records in this workspace.";
+  if ("error" in built) return { error: built.error };
+  const { context, citedRecords, sys } = built as {
+    context: string;
+    citedRecords: { entityId: string; moduleSlug: string; moduleName: string }[];
+    sys: string;
+  };
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { error: "AI is not configured (OPENAI_API_KEY)." };
   const { OpenAI } = await import("openai");
   const client = new OpenAI({ apiKey });
-  const viewingModuleName = moduleId ? moduleById.get(moduleId)?.name : null;
-  let sys =
-    "You are an assistant for this workspace. Answer the user's question using only the provided context (record fields and values). Use the exact field names and values from the context. If the context does not contain the information, say so. Be concise.";
-  if (viewingModuleName) {
-    sys += ` The user is currently viewing the ${viewingModuleName} module.`;
-  }
   try {
     const res = await client.chat.completions.create({
       model: "gpt-4o-mini",

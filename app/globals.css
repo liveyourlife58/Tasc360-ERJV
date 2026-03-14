@@ -963,6 +963,20 @@ a {
   margin-bottom: 0.75rem;
 }
 
+.ask-ai-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  background: #64748b;
+  animation: ask-ai-cursor-blink 1s step-end infinite;
+  vertical-align: text-bottom;
+}
+
+@keyframes ask-ai-cursor-blink {
+  50% { opacity: 0; }
+}
+
 .view-tabs {
   display: flex;
   flex-wrap: wrap;
