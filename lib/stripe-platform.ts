@@ -6,6 +6,7 @@
 import Stripe from "stripe";
 import { prisma } from "./prisma";
 import { getBillingConfig } from "./billing";
+import { getTrialDays } from "./app-config";
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -64,7 +65,7 @@ export async function createPlatformCheckoutSession(
     cancel_url: cancelUrl,
     subscription_data: {
       metadata: { tenantId },
-      trial_period_days: process.env.STRIPE_TRIAL_DAYS ? parseInt(process.env.STRIPE_TRIAL_DAYS, 10) : undefined,
+      trial_period_days: getTrialDays() > 0 ? getTrialDays() : undefined,
     },
     metadata: { tenantId },
     allow_promotion_codes: true,

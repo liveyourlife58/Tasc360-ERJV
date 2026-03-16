@@ -3,6 +3,10 @@
 import { useState } from "react";
 import type { ForgotPasswordState } from "./actions";
 
+const inputClass =
+  "w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent";
+const labelClass = "block text-sm font-medium text-slate-700 mb-1";
+
 export function ForgotPasswordForm({
   action: _action,
 }: {
@@ -38,9 +42,9 @@ export function ForgotPasswordForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="login-form">
-      <div className="form-group">
-        <label htmlFor="workspace">Workspace</label>
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label htmlFor="workspace" className={labelClass}>Workspace</label>
         <input
           id="workspace"
           name="workspace"
@@ -48,29 +52,35 @@ export function ForgotPasswordForm({
           autoComplete="username"
           placeholder="e.g. acme"
           required
+          className={inputClass}
         />
       </div>
-      <div className="form-group">
-        <label htmlFor="email">Email</label>
+      <div>
+        <label htmlFor="email" className={labelClass}>Email</label>
         <input
           id="email"
           name="email"
           type="email"
           autoComplete="email"
           required
+          className={inputClass}
         />
       </div>
       {state?.error && (
-        <p className="login-error" role="alert">
+        <p className="p-2.5 px-3 text-sm text-red-700 bg-red-50 rounded-lg border border-red-100" role="alert">
           {state.error}
         </p>
       )}
       {state?.success && (
-        <p className="banner-success" role="status">
+        <p className="p-3 text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg" role="status">
           If an account exists for that workspace and email, we&apos;ve sent a reset link.
         </p>
       )}
-      <button type="submit" className="btn btn-primary login-submit" disabled={pending}>
+      <button
+        type="submit"
+        className="w-full mt-2 py-2.5 px-4 rounded-lg font-medium text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-60 disabled:pointer-events-none transition-colors"
+        disabled={pending}
+      >
         {pending ? "Sending…" : "Send reset link"}
       </button>
     </form>

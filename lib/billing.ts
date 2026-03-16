@@ -4,8 +4,8 @@
  * When Stripe is connected, create a subscription with these amounts and quantity = active user count.
  */
 
-const DEFAULT_PLATFORM_FEE_USD = 200;
-const DEFAULT_PER_USER_FEE_USD = 20;
+const DEFAULT_PLATFORM_FEE_USD = 0;
+const DEFAULT_PER_USER_FEE_USD = 25;
 
 export type BillingConfig = {
   platformFeeUsd: number;

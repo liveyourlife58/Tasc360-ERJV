@@ -232,6 +232,40 @@ export async function sendInviteEmail(to: string, tenantName: string, setPasswor
   }
 }
 
+/** Send invite email for tenant end-user (customer) account. Link is set-customer-password. */
+export async function sendEndUserInviteEmail(to: string, tenantName: string, setPasswordUrl: string): Promise<boolean> {
+  const resend = getResend();
+  if (!resend) return false;
+  try {
+    const { error } = await resend.emails.send({
+      from: PLATFORM_FROM_EMAIL,
+      to: [to],
+      subject: `You're invited to ${tenantName}`,
+      html: `<p>You've been invited to create an account at ${tenantName}.</p><p><a href="${setPasswordUrl}">Set your password</a> to get started.</p><p>This link expires in 7 days.</p>`,
+    });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** Send password reset email for tenant end-user (customer). */
+export async function sendEndUserPasswordResetEmail(to: string, tenantName: string, resetUrl: string): Promise<boolean> {
+  const resend = getResend();
+  if (!resend) return false;
+  try {
+    const { error } = await resend.emails.send({
+      from: PLATFORM_FROM_EMAIL,
+      to: [to],
+      subject: `Reset your password – ${tenantName}`,
+      html: `<p>You requested a password reset for your account at ${tenantName}.</p><p><a href="${resetUrl}">Reset your password</a></p><p>This link expires in 1 hour. If you didn't request this, you can ignore this email.</p>`,
+    });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
 /** Send "Webhook delivery failed" email if tenant opted in. */
 export async function sendWebhookFailedEmail(tenantId: string, payload: { event: string; url: string; errorMessage: string }): Promise<void> {
   const tenant = await prisma.tenant.findUnique({

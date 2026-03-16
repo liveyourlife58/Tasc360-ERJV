@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { ensureDefaultRoles } from "@/lib/roles";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getBillingConfig, computeMonthlyTotalUsd } from "@/lib/billing";
+import { getTrialDays } from "@/lib/app-config";
 import { AddUserForm } from "./AddUserForm";
 import { TeamTableWithEditModal } from "./TeamTableWithEditModal";
 import { SubscriptionBillingBlock } from "./SubscriptionBillingBlock";
@@ -85,18 +86,27 @@ export default async function SubscriptionPage({
       <section className="subscription-section">
         <h2 className="subscription-heading">Plan &amp; billing</h2>
         <div className="subscription-plan-breakdown">
-          <p className="subscription-plan-line">
-            <strong>Platform fee:</strong> ${billing.platformFeeUsd}/month
-          </p>
+          {billing.platformFeeUsd > 0 && (
+            <p className="subscription-plan-line">
+              <strong>Platform fee:</strong> ${billing.platformFeeUsd}/month
+            </p>
+          )}
           <p className="subscription-plan-line">
             <strong>Per user:</strong> ${billing.perUserFeeUsd}/user/month × {activeUserCount} active user{activeUserCount !== 1 ? "s" : ""} = ${(billing.perUserFeeUsd * activeUserCount).toFixed(2)}
           </p>
           <p className="subscription-plan-total">
             <strong>Estimated total (full month):</strong> ${estimatedMonthlyUsd.toFixed(2)}/month
           </p>
+          {getTrialDays() > 0 && (
+            <p className="subscription-plan-line" style={{ marginTop: "0.5rem" }}>
+              <strong>Free trial:</strong> New subscriptions include a {getTrialDays()}-day free trial. You won&apos;t be charged until it ends.
+            </p>
+          )}
           <div className="subscription-plan-proration">
             <p className="subscription-plan-proration-intro">
-              Both fees are prorated when you sign up mid-cycle, add/remove users, or cancel.
+              {billing.platformFeeUsd > 0
+                ? "Both fees are prorated when you sign up mid-cycle, add/remove users, or cancel."
+                : "Per-user charges are prorated when you sign up mid-cycle, add/remove users, or cancel."}
             </p>
           </div>
           <p className="subscription-next-invoice">

@@ -5,7 +5,7 @@
 openapi: 3.0.3
 info:
   title: Tenant API
-  description: REST API for tenant data (modules, entities, related). Use X-API-Key for auth.
+  description: REST API for tenant data (modules, entities, related). Use X-API-Key for auth; end-user auth uses JWT (login/register return token, send as Bearer for .../auth/me).
   version: "1.0"
 
 servers:
@@ -16,6 +16,99 @@ security:
   - ApiKey: []
 
 paths:
+  /tenants/{tenantIdOrSlug}/auth/login:
+    post:
+      summary: End-user login
+      description: Returns a JWT for use as Authorization Bearer. Enable in Dashboard → Settings → End-user accounts; set JWT_SECRET.
+      security: [{ ApiKey: [] }]
+      parameters:
+        - name: tenantIdOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string, description: "JWT for Authorization Bearer" }
+                  user: { $ref: "#/components/schemas/EndUser" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Customer logins not enabled }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /tenants/{tenantIdOrSlug}/auth/register:
+    post:
+      summary: End-user register (self-signup)
+      description: Only if tenant allows self-signup in Settings → End-user accounts.
+      security: [{ ApiKey: [] }]
+      parameters:
+        - name: tenantIdOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                name: { type: string, nullable: true }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  user: { $ref: "#/components/schemas/EndUser" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Self-signup not allowed }
+        "409": { description: Email already exists }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /tenants/{tenantIdOrSlug}/auth/me:
+    get:
+      summary: Current end-user (requires Bearer token)
+      description: Send Authorization Bearer with the token from login/register. No X-API-Key required.
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: tenantIdOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: "#/components/schemas/EndUser" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
   /tenants/{tenantIdOrSlug}/modules:
     get:
       summary: List modules
@@ -285,8 +378,19 @@ components:
       in: header
       name: X-API-Key
       description: Tenant API key (Dashboard → Settings → API access)
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT from POST .../auth/login or .../auth/register
 
   schemas:
+    EndUser:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        name: { type: string, nullable: true }
     Module:
       type: object
       properties:

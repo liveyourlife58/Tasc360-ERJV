@@ -96,7 +96,7 @@ export function DashboardSettingsForm({
             name="brandingPrimaryColor"
             type="text"
             defaultValue={branding?.primaryColor}
-            placeholder="#4f46e5"
+            placeholder="#0d9488"
           />
         </div>
       </section>
@@ -137,18 +137,7 @@ export function DashboardSettingsForm({
         </section>
         <section className="settings-section">
           <h4 className="settings-heading">API access</h4>
-        <p className="settings-hint">Use X-API-Key header with the same value to call the REST API (e.g. GET/POST /api/v1/tenants/:tenantId/modules/...).</p>
-        <div className="form-group">
-          <label htmlFor="apiKey">API key</label>
-          <input
-            id="apiKey"
-            name="apiKey"
-            type="password"
-            placeholder="Leave blank to keep current key"
-            autoComplete="off"
-            className="settings-api-key"
-          />
-        </div>
+        <p className="settings-hint">Create and manage API keys under Settings → API access. Use the X-API-Key header when calling the REST API (e.g. GET/POST /api/v1/tenants/:tenantId/modules/...).</p>
         </section>
       </div>
 

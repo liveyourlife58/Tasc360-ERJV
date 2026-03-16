@@ -6,10 +6,12 @@
 const WINDOW_MS = 15 * 60 * 1000; // 15 min
 const MAX_LOGIN_PER_WINDOW = 20;
 const MAX_FORGOT_PASSWORD_PER_WINDOW = 5;
+const MAX_SIGNUP_PER_WINDOW = 5;
 
 type Entry = { count: number; windowStart: number };
 const loginMap = new Map<string, Entry>();
 const forgotMap = new Map<string, Entry>();
+const signupMap = new Map<string, Entry>();
 
 function getEntry(map: Map<string, Entry>, key: string, max: number): { allowed: boolean; entry: Entry } {
   const now = Date.now();
@@ -36,4 +38,9 @@ export function checkLoginRateLimit(ip: string): boolean {
 /** Returns true if under limit (allowed), false if over limit (reject). */
 export function checkForgotPasswordRateLimit(ip: string): boolean {
   return getEntry(forgotMap, ip, MAX_FORGOT_PASSWORD_PER_WINDOW).allowed;
+}
+
+/** Returns true if under limit (allowed), false if over limit (reject). */
+export function checkSignupRateLimit(ip: string): boolean {
+  return getEntry(signupMap, ip, MAX_SIGNUP_PER_WINDOW).allowed;
 }

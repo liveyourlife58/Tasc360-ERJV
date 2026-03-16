@@ -1,17 +1,17 @@
 "use client";
 
 import { useActionState } from "react";
-import type { resetPassword, ResetPasswordState } from "./actions";
+import type { setCustomerPassword, SetCustomerPasswordState } from "./actions";
 
 const inputClass =
   "w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent";
 const labelClass = "block text-sm font-medium text-slate-700 mb-1";
 
-export function ResetPasswordForm({
+export function SetCustomerPasswordForm({
   action,
   token,
 }: {
-  action: (prev: ResetPasswordState | null, formData: FormData) => Promise<ResetPasswordState>;
+  action: (prev: SetCustomerPasswordState | null, formData: FormData) => Promise<SetCustomerPasswordState>;
   token: string;
 }) {
   const [state, formAction] = useActionState(action, null);

@@ -11,8 +11,9 @@ import { getTenantConnectConfig } from "@/lib/stripe-connect";
 import { listApiKeys } from "@/lib/api-keys";
 import { getConsentTypes } from "@/lib/consent";
 import { getAllowDeveloperSetup, isPlatformAdmin } from "@/lib/developer-setup";
+import { getCustomerLoginSettings } from "@/lib/customer-login-settings";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { updateDashboardSettings, connectStripeFormAction, sendTestWebhookFormAction, createApiKeyAction, revokeApiKeyFormAction, updateConsentTypesFormAction, updateAllowDeveloperSetupFormAction } from "../actions";
+import { updateDashboardSettings, connectStripeFormAction, sendTestWebhookFormAction, createApiKeyAction, revokeApiKeyFormAction, updateConsentTypesFormAction, updateAllowDeveloperSetupForCurrentTenantFormAction, inviteEndUserAction, deactivateEndUserFormAction, sendEndUserPasswordResetFormAction } from "../actions";
 import { SettingsSectionCards } from "./SettingsSectionCards";
 
 export default async function DashboardSettingsPage({
@@ -49,7 +50,7 @@ export default async function DashboardSettingsPage({
   const [tenant, user, hasDeveloperPermission, modules] = await Promise.all([
     prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { name: true, settings: true },
+      select: { name: true, settings: true, slug: true },
     }),
     userId ? prisma.user.findUnique({ where: { id: userId }, select: { email: true } }) : null,
     userId ? hasPermission(userId, PERMISSIONS.settingsDeveloper) : false,
@@ -143,6 +144,12 @@ export default async function DashboardSettingsPage({
   const currentLocale = (settingsObj.locale as string) ?? "";
   const featureFlags = getFeatureFlags(tenant?.settings ?? null);
   const apiKeys = await listApiKeys(tenantId);
+  const customerLogin = getCustomerLoginSettings(tenant?.settings ?? null);
+  const endUsers = await prisma.tenantEndUser.findMany({
+    where: { tenantId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, email: true, name: true, isActive: true, lastLoginAt: true, createdAt: true, inviteToken: true },
+  });
   const currentConsentTypes = getConsentTypes(tenant?.settings as Record<string, unknown> ?? null);
   const allowDeveloperSetup = getAllowDeveloperSetup(tenant?.settings ?? null);
   const showDeveloperSections = allowDeveloperSetup && hasDeveloperPermission;
@@ -162,6 +169,7 @@ export default async function DashboardSettingsPage({
       <p className="settings-intro">Click a section to open its settings.</p>
       <SettingsSectionCards
         tenantId={tenantId}
+        tenantSlug={tenant?.slug ?? null}
         updateAction={updateDashboardSettings.bind(null, tenantId)}
         branding={dashboardSettings.branding}
         home={dashboardSettings.home}
@@ -203,14 +211,18 @@ export default async function DashboardSettingsPage({
         apiKeys={apiKeys}
         createApiKeyAction={createApiKeyAction.bind(null, tenantId)}
         revokeApiKeyAction={revokeApiKeyFormAction.bind(null, tenantId)}
+        customerLoginEnabled={customerLogin.enabled}
+        customerLoginAllowSelfSignup={customerLogin.allowSelfSignup}
+        endUsers={endUsers}
+        inviteEndUserAction={(prev, formData) => inviteEndUserAction(tenantId, prev, formData)}
+        deactivateEndUserFormAction={(formData) => deactivateEndUserFormAction(tenantId, formData)}
+        sendEndUserPasswordResetFormAction={(formData) => sendEndUserPasswordResetFormAction(tenantId, formData)}
         currentConsentTypes={currentConsentTypes}
         updateConsentTypesFormAction={updateConsentTypesFormAction}
         showDeveloperSections={showDeveloperSections}
         isPlatformAdmin={platformAdmin}
         allowDeveloperSetup={allowDeveloperSetup}
-        updateAllowDeveloperSetupFormAction={(prev, formData) =>
-          updateAllowDeveloperSetupFormAction(tenantId, prev, formData)
-        }
+        updateAllowDeveloperSetupFormAction={updateAllowDeveloperSetupForCurrentTenantFormAction}
       />
     </div>
   );

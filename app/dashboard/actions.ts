@@ -1268,7 +1268,7 @@ async function applyTenantSettingsUpdate(
     }
   }
 
-  if (section !== "customer") {
+  if (section !== "customer" && section !== "dashboard-features") {
     const dashboard = (settings.dashboard as Record<string, unknown>) ?? {};
     const branding = (dashboard.branding as Record<string, unknown>) ?? {};
     const name = (formData.get("brandingName") as string)?.trim();
@@ -1298,13 +1298,6 @@ async function applyTenantSettingsUpdate(
       }
     }
     settings.dashboard = Object.keys(dashboard).length ? dashboard : undefined;
-    const apiKeyRaw = (formData.get("apiKey") as string)?.trim();
-    if (apiKeyRaw !== undefined && apiKeyRaw !== "") {
-      if (!options.skipDeveloperGate && (!allowDeveloperSetup || !hasDeveloper)) {
-        throw new Error("Developer setup is not enabled or you don't have permission to set the API key.");
-      }
-      settings.apiKey = apiKeyRaw;
-    }
   }
 
   if (section === "backend-webhooks") {
@@ -1326,6 +1319,15 @@ async function applyTenantSettingsUpdate(
     settings.features = features;
   }
 
+  if (section === "dashboard-features") {
+    const { DASHBOARD_FEATURE_KEYS } = await import("@/lib/dashboard-features");
+    const dashboardFeatures: Record<string, boolean> = {};
+    for (const key of DASHBOARD_FEATURE_KEYS) {
+      dashboardFeatures[key] = formData.has(`featureDashboard${key.charAt(0).toUpperCase()}${key.slice(1)}`);
+    }
+    settings.dashboardFeatures = dashboardFeatures;
+  }
+
   if (section === "email-notifications") {
     const notificationEmail = (formData.get("notificationEmail") as string)?.trim();
     settings.notificationEmail = notificationEmail && notificationEmail.includes("@") ? notificationEmail : undefined;
@@ -1341,6 +1343,13 @@ async function applyTenantSettingsUpdate(
     notifications.paymentFailed = formData.has("paymentFailed");
     notifications.webhookFailed = formData.has("webhookFailed");
     settings.emailNotifications = notifications;
+  }
+
+  if (section === "backend-customer-logins") {
+    const customerLogin = (settings.customerLogin as Record<string, unknown>) ?? {};
+    customerLogin.enabled = formData.has("customerLoginEnabled");
+    customerLogin.allowSelfSignup = formData.has("customerLoginAllowSelfSignup");
+    settings.customerLogin = customerLogin;
   }
 
   if (section !== "backend" && section !== "backend-webhooks") {
@@ -1546,12 +1555,25 @@ export async function updateAllowDeveloperSetup(
   redirect("/dashboard/settings?success=developer-setup");
 }
 
-/** Form action for the "Allow developer setup" toggle. Reads formData "enabled" (true/false string). */
+/** Form action for the "Allow developer setup" toggle. Reads formData "enabled" (true/false string). Use from platform admin with tenantId; use updateAllowDeveloperSetupForCurrentTenantFormAction on the tenant's own settings page. */
 export async function updateAllowDeveloperSetupFormAction(
   tenantId: string,
   _prev: unknown,
   formData: FormData
 ): Promise<{ error?: string }> {
+  const raw = formData.get("enabled");
+  const enabled = String(raw ?? "") === "true";
+  return updateAllowDeveloperSetup(tenantId, enabled);
+}
+
+/** Form action for "Allow developer setup" on the current tenant's settings page. Gets tenantId from session so it can be passed to Client Components by reference. */
+export async function updateAllowDeveloperSetupForCurrentTenantFormAction(
+  _prev: unknown,
+  formData: FormData
+): Promise<{ error?: string }> {
+  const h = await headers();
+  const tenantId = h.get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
   const raw = formData.get("enabled");
   const enabled = String(raw ?? "") === "true";
   return updateAllowDeveloperSetup(tenantId, enabled);
@@ -1717,6 +1739,116 @@ export async function revokeApiKeyAsPlatformAdminFormAction(formData: FormData):
   const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
   if (!targetTenantId) throw new Error("Missing target tenant.");
   return revokeApiKeyAsPlatformAdmin(targetTenantId, formData);
+}
+
+// -----------------------------------------------------------------------------
+// Tenant end-user (customer) account management
+// -----------------------------------------------------------------------------
+
+const END_USER_INVITE_TOKEN_EXPIRY_DAYS = 7;
+const END_USER_RESET_TOKEN_EXPIRY_HOURS = 1;
+
+export async function inviteEndUserAction(
+  tenantId: string,
+  _prev: unknown,
+  formData: FormData
+): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  const userId = (await headers()).get("x-user-id");
+  const sessionTenantId = (await headers()).get("x-tenant-id");
+  if (!userId || sessionTenantId !== tenantId) return { error: "Unauthorized" };
+  const email = (formData.get("email") as string)?.trim()?.toLowerCase();
+  const name = (formData.get("name") as string)?.trim() || null;
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "A valid email is required." };
+  const existing = await prisma.tenantEndUser.findUnique({
+    where: { tenantId_email: { tenantId, email } },
+  });
+  if (existing) return { error: "A customer account with this email already exists." };
+  const crypto = await import("crypto");
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + END_USER_INVITE_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+  await prisma.tenantEndUser.create({
+    data: {
+      tenantId,
+      email,
+      name,
+      isActive: true,
+      inviteToken: token,
+      inviteTokenExpiresAt: expiresAt,
+    },
+  });
+  const base = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  const setPasswordUrl = `${base}/set-customer-password?token=${encodeURIComponent(token)}`;
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
+  const { sendEndUserInviteEmail } = await import("@/lib/email");
+  await sendEndUserInviteEmail(email, tenant?.name ?? "Workspace", setPasswordUrl);
+  const { logAuditEvent } = await import("@/lib/audit");
+  await logAuditEvent(tenantId, "end_user_invited", { email }, userId);
+  revalidatePath("/dashboard/settings");
+  return {};
+}
+
+export async function deactivateEndUserAction(tenantId: string, formData: FormData): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  const userId = (await headers()).get("x-user-id");
+  const sessionTenantId = (await headers()).get("x-tenant-id");
+  if (!userId || sessionTenantId !== tenantId) return { error: "Unauthorized" };
+  const endUserId = (formData.get("endUserId") as string)?.trim();
+  if (!endUserId) return { error: "Missing user." };
+  const row = await prisma.tenantEndUser.findFirst({
+    where: { id: endUserId, tenantId },
+  });
+  if (!row) return { error: "User not found." };
+  await prisma.tenantEndUser.update({
+    where: { id: endUserId },
+    data: { isActive: false, inviteToken: null, inviteTokenExpiresAt: null, resetToken: null, resetTokenExpiresAt: null },
+  });
+  const { logAuditEvent } = await import("@/lib/audit");
+  await logAuditEvent(tenantId, "end_user_deactivated", { email: row.email, endUserId }, userId);
+  revalidatePath("/dashboard/settings");
+  return {};
+}
+
+export async function sendEndUserPasswordResetAction(tenantId: string, formData: FormData): Promise<{ error?: string }> {
+  await requireDashboardPermission(PERMISSIONS.settingsManage);
+  const userId = (await headers()).get("x-user-id");
+  const sessionTenantId = (await headers()).get("x-tenant-id");
+  if (!userId || sessionTenantId !== tenantId) return { error: "Unauthorized" };
+  const endUserId = (formData.get("endUserId") as string)?.trim();
+  if (!endUserId) return { error: "Missing user." };
+  const row = await prisma.tenantEndUser.findFirst({
+    where: { id: endUserId, tenantId, isActive: true },
+  });
+  if (!row) return { error: "User not found or inactive." };
+  const crypto = await import("crypto");
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + END_USER_RESET_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000);
+  await prisma.tenantEndUser.update({
+    where: { id: endUserId },
+    data: { resetToken: token, resetTokenExpiresAt: expiresAt },
+  });
+  const base = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  const resetUrl = `${base}/set-customer-password?token=${encodeURIComponent(token)}`;
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
+  const { sendEndUserPasswordResetEmail } = await import("@/lib/email");
+  const sent = await sendEndUserPasswordResetEmail(row.email, tenant?.name ?? "Workspace", resetUrl);
+  const { logAuditEvent } = await import("@/lib/audit");
+  await logAuditEvent(tenantId, "end_user_password_reset_sent", { email: row.email, endUserId }, userId);
+  revalidatePath("/dashboard/settings");
+  return sent ? {} : { error: "Failed to send email. Check email configuration." };
+}
+
+/** Form action for Deactivate / Send reset; redirects on success. */
+export async function deactivateEndUserFormAction(tenantId: string, formData: FormData): Promise<void> {
+  const result = await deactivateEndUserAction(tenantId, formData);
+  if (result.error) throw new Error(result.error);
+  redirect("/dashboard/settings");
+}
+
+export async function sendEndUserPasswordResetFormAction(tenantId: string, formData: FormData): Promise<void> {
+  const result = await sendEndUserPasswordResetAction(tenantId, formData);
+  if (result.error) throw new Error(result.error);
+  redirect("/dashboard/settings");
 }
 
 // -----------------------------------------------------------------------------

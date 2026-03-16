@@ -13,8 +13,9 @@ A minimal **OpenAPI 3.0** spec is in [openapi-tenant-api.yaml](openapi-tenant-ap
 
 - **Header:** `X-API-Key: <your-api-key>`
 - **Idempotency (optional):** For `POST` and `PATCH` on entities, send `Idempotency-Key: <unique-key>` (e.g. a UUID or client-generated string). The server caches the response for 24 hours; duplicate requests with the same key receive the cached response and do not create or update again. Use this to avoid duplicate entities or double updates on retries.
-- **API key:** Create one or more keys in **Dashboard → Settings → API access**. Keys are hashed and can be revoked. You can also set a single legacy key in the same section (stored in `tenant.settings.apiKey`). Auth checks managed keys first, then the legacy key.
+- **API key:** Create one or more keys in **Dashboard → Settings → API access**. Keys are hashed and can be revoked. Use the `X-API-Key` header with a key that belongs to the tenant in the path.
 - **Tenant in path:** Use the tenant’s **UUID** or **slug** in the path (e.g. `/api/v1/tenants/acme/...` or `/api/v1/tenants/550e8400-e29b-41d4-a716-446655440000/...`). The server resolves slug to tenant and verifies the API key belongs to that tenant; if not, you get `401 Unauthorized` or `404 Tenant not found`.
+- **End-user (customer) auth:** For customer logins, use `POST .../auth/login` or `POST .../auth/register` with `X-API-Key`; the response includes a **JWT** in `token`. Send that in **`Authorization: Bearer <token>`** for `GET .../auth/me` and (in a future version) for user-scoped entity requests. Enable customer logins in **Dashboard → Settings → End-user accounts**; set **JWT_SECRET** in the backend env (at least 32 characters).
 
 Example:
 
@@ -56,6 +57,60 @@ GET /api/v1/tenants/:tenantId/modules
 ```
 
 **Response:** `{ "modules": [ { "id", "name", "slug", "description" }, ... ] }`
+
+---
+
+### End-user auth (customer logins)
+
+Customer logins must be enabled in **Dashboard → Settings → End-user accounts**. The backend must have **JWT_SECRET** set (at least 32 characters).
+
+#### Login
+
+```http
+POST /api/v1/tenants/:tenantId/auth/login
+Content-Type: application/json
+X-API-Key: <your-api-key>
+
+{ "email": "customer@example.com", "password": "..." }
+```
+
+- **Response:** `200` with `{ "token": "<jwt>", "user": { "id", "email", "name" } }`. Store the token and send it as `Authorization: Bearer <token>` on subsequent requests (e.g. `GET .../auth/me`).
+- **Errors:** `401` invalid email/password; `403` customer logins not enabled for this tenant.
+
+#### Register (self-signup)
+
+```http
+POST /api/v1/tenants/:tenantId/auth/register
+Content-Type: application/json
+X-API-Key: <your-api-key>
+
+{ "email": "customer@example.com", "password": "...", "name": "Optional Name" }
+```
+
+- Only allowed if the tenant has **Allow self-signup** enabled in Settings → End-user accounts.
+- **Response:** `200` with `{ "token": "<jwt>", "user": { "id", "email", "name" } }`.
+- **Errors:** `403` self-signup not allowed; `409` email already exists; `400` validation (e.g. password &lt; 8 characters).
+
+#### Me (current user)
+
+```http
+GET /api/v1/tenants/:tenantId/auth/me
+Authorization: Bearer <token>
+```
+
+- No API key required; the Bearer token identifies the tenant and end user.
+- **Response:** `200` with `{ "user": { "id", "email", "name" } }`.
+- **Errors:** `401` missing or invalid/expired token.
+
+---
+
+### List module fields (schema)
+
+```http
+GET /api/v1/tenants/:tenantId/modules/:moduleSlug/fields
+```
+
+**Response:** `{ "fields": [ { "id", "name", "slug", "fieldType", "isRequired", "settings", "sortOrder" }, ... ] }`. Use this to build dynamic forms: `fieldType` is one of `text`, `number`, `date`, `boolean`, `select`, `relation`, `file`, `json`, `relation-multi`. For `select`, `settings.options` is an array of option strings.
 
 ---
 

@@ -64,7 +64,7 @@ This document tracks what is **done** vs **still missing or partial** relative t
 | Login lockout | **Done** | Failed attempts → lockout; reset on success. |
 | Authorization | **Done** | `requireDashboardPermission` in dashboard actions. |
 | Tenant from session/path/API key | **Done** | No tenant from client for privilege escalation. |
-| API key storage | Plaintext | Stored in `tenant.settings.apiKey`. Optional: hash and compare. |
+| API key storage | **Done** | Keys stored in `api_keys` table (hashed); legacy key removed. |
 | Read permission | **Done** | Dashboard enforces `entities:read` on entity list and entity detail pages; users without it get 404. |
 | RLS | Optional | Not enabled; optional defense-in-depth. |
 

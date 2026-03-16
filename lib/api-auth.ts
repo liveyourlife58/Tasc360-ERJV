@@ -9,33 +9,22 @@ function hashKey(key: string): string {
 
 /**
  * Resolve tenant ID from API key (X-API-Key header).
- * Checks api_keys table first (by prefix + hash), then falls back to tenant.settings.apiKey.
- * Returns tenantId if key matches, null otherwise.
+ * Keys are stored in the api_keys table (prefix + hash). Returns tenantId if key matches, null otherwise.
  */
 export async function getTenantIdFromApiKey(apiKey: string | null): Promise<string | null> {
   if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) return null;
   const key = apiKey.trim();
 
   const prefix = key.slice(0, KEY_PREFIX_LEN);
-  if (prefix.length === KEY_PREFIX_LEN) {
-    const row = await prisma.apiKey.findUnique({
-      where: { keyPrefix: prefix },
-      select: { id: true, tenantId: true, keyHash: true },
-    });
-    if (row && row.keyHash === hashKey(key)) {
-      prisma.apiKey.update({ where: { id: row.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
-      return row.tenantId;
-    }
-  }
+  if (prefix.length < KEY_PREFIX_LEN) return null;
 
-  const tenants = await prisma.tenant.findMany({
-    where: { isActive: true },
-    select: { id: true, settings: true },
+  const row = await prisma.apiKey.findUnique({
+    where: { keyPrefix: prefix },
+    select: { id: true, tenantId: true, keyHash: true },
   });
-  for (const t of tenants) {
-    const settings = t.settings as Record<string, unknown> | null;
-    const stored = settings?.apiKey as string | undefined;
-    if (stored && stored === key) return t.id;
+  if (row && row.keyHash === hashKey(key)) {
+    prisma.apiKey.update({ where: { id: row.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
+    return row.tenantId;
   }
   return null;
 }

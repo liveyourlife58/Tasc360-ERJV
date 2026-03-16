@@ -61,6 +61,7 @@ model Tenant {
   idempotencyKeys    IdempotencyKey[]
   apiKeys            ApiKey[]
   integrations       Integration[]
+  tenantEndUsers     TenantEndUser[]
 
   @@index([slug], map: "idx_tenants_slug")
   @@index([parentTenantId], map: "idx_tenants_parent")
@@ -126,6 +127,37 @@ model PasswordResetToken {
   @@index([token], map: "idx_password_reset_tokens_token")
   @@index([expiresAt], map: "idx_password_reset_tokens_expires")
   @@map("password_reset_tokens")
+}
+
+// =============================================================================
+// TENANT END USERS (customer logins for custom frontends)
+// Used only for tenant API auth (login/register/me). Separate from dashboard User.
+// =============================================================================
+
+model TenantEndUser {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String    @map("tenant_id") @db.Uuid
+  email                 String    @db.VarChar(255)
+  name                  String?   @db.VarChar(255)
+  passwordHash          String?   @map("password_hash") @db.VarChar(255)
+  isActive              Boolean   @default(true) @map("is_active")
+  /// Invite: set when inviting; clear after they set password.
+  inviteToken           String?   @map("invite_token") @db.VarChar(64)
+  inviteTokenExpiresAt  DateTime? @map("invite_token_expires_at") @db.Timestamptz(6)
+  /// Password reset: set when they request reset or admin sends reset email; clear after set.
+  resetToken            String?   @map("reset_token") @db.VarChar(64)
+  resetTokenExpiresAt   DateTime? @map("reset_token_expires_at") @db.Timestamptz(6)
+  lastLoginAt          DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email], map: "tenant_end_users_tenant_email_unique")
+  @@unique([inviteToken], map: "tenant_end_users_invite_token_unique")
+  @@unique([resetToken], map: "tenant_end_users_reset_token_unique")
+  @@index([tenantId], map: "idx_tenant_end_users_tenant_id")
+  @@map("tenant_end_users")
 }
 
 // =============================================================================

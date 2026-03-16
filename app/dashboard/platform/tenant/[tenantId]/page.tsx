@@ -5,6 +5,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getDashboardSettings } from "@/lib/dashboard-settings";
 import { getFeatureFlags } from "@/lib/feature-flags";
+import { getDashboardFeatures } from "@/lib/dashboard-features";
 import { getModulePaymentType } from "@/lib/module-settings";
 import { getTenantConnectConfig } from "@/lib/stripe-connect";
 import { listApiKeys } from "@/lib/api-keys";
@@ -144,6 +145,7 @@ export default async function PlatformTenantDetailPage({
   const currentEmailReplyTo = (settingsObj.emailReplyTo as string) ?? "";
   const currentLocale = (settingsObj.locale as string) ?? "";
   const featureFlags = getFeatureFlags(tenant.settings ?? null);
+  const dashboardFeatures = getDashboardFeatures(tenant.settings ?? null);
   const apiKeys = await listApiKeys(tenantId);
   const currentConsentTypes = getConsentTypes(settingsObj);
   const allowDeveloperSetup = getAllowDeveloperSetup(tenant.settings ?? null);
@@ -236,6 +238,7 @@ export default async function PlatformTenantDetailPage({
         currentEmailReplyTo={currentEmailReplyTo}
         currentLocale={currentLocale}
         featureFlags={featureFlags}
+        dashboardFeatures={dashboardFeatures}
         apiKeys={apiKeys}
         createApiKeyAction={createApiKeyAsPlatformAdminFormAction}
         revokeApiKeyAction={revokeApiKeyAsPlatformAdminFormAction}

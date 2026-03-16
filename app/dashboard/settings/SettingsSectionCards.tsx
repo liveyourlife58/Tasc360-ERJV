@@ -26,11 +26,13 @@ type SectionId =
   | "backend-home"
   | "backend-payments"
   | "backend-api"
+  | "backend-customer-logins"
   | "backend-features"
   | "backend-webhooks"
   | "backend-locale"
   | "email-notifications"
-  | "consent-types";
+  | "consent-types"
+  | "platform-dashboard-features";
 
 const SECTION_TITLES: Record<SectionId, string> = {
   "customer-ai": "Homepage Text",
@@ -46,11 +48,13 @@ const SECTION_TITLES: Record<SectionId, string> = {
   "backend-home": "Default home",
   "backend-payments": "Payments (Stripe)",
   "backend-api": "API access",
+  "backend-customer-logins": "End-user accounts",
   "backend-features": "Feature flags",
   "backend-webhooks": "Webhooks",
   "backend-locale": "Locale & format",
   "email-notifications": "Email notifications",
   "consent-types": "Consent types",
+  "platform-dashboard-features": "Dashboard features",
 };
 
 /** Renders hidden inputs for platform admin (e.g. targetTenantId). Safe to pass undefined. */
@@ -67,6 +71,7 @@ function FormExtraFields({ fields }: { fields?: Record<string, string> }) {
 
 type Props = {
   tenantId: string;
+  tenantSlug?: string | null;
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
   /** When set (e.g. platform admin editing another tenant), these are added to every form so the action receives them. */
   extraFormFields?: Record<string, string>;
@@ -120,12 +125,20 @@ type Props = {
   apiKeys?: { id: string; name: string; keyPrefix: string; lastUsedAt: Date | null; createdAt: Date }[];
   createApiKeyAction?: (prev: unknown, formData: FormData) => Promise<{ key?: string; error?: string }>;
   revokeApiKeyAction?: (formData: FormData) => Promise<void>;
+  customerLoginEnabled?: boolean;
+  customerLoginAllowSelfSignup?: boolean;
+  endUsers?: { id: string; email: string; name: string | null; isActive: boolean; lastLoginAt: Date | null; createdAt: Date; inviteToken: string | null }[];
+  inviteEndUserAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
+  deactivateEndUserFormAction?: (formData: FormData) => Promise<void>;
+  sendEndUserPasswordResetFormAction?: (formData: FormData) => Promise<void>;
   currentConsentTypes?: string[];
   updateConsentTypesFormAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
   showDeveloperSections?: boolean;
   isPlatformAdmin?: boolean;
   allowDeveloperSetup?: boolean;
   updateAllowDeveloperSetupFormAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
+  /** Platform admin only: enable/disable dashboard areas for this tenant. */
+  dashboardFeatures?: { help: boolean; approvals: boolean; activity: boolean; consent: boolean; finance: boolean; integrations: boolean; team: boolean; subscription: boolean; settings: boolean };
 };
 
 const DEVELOPER_SECTION_IDS: SectionId[] = ["backend-api", "backend-webhooks"];
@@ -189,6 +202,7 @@ export function SettingsSectionCards(props: Props) {
     { id: "backend-home", title: "Default home", desc: "Where to go after login" },
     { id: "backend-payments", title: "Payments (Stripe)", desc: "Accept payments from your customers" },
     { id: "backend-api", title: "API access", desc: "API keys for REST API" },
+    { id: "backend-customer-logins", title: "End-user accounts", desc: "Customer logins for your custom frontend" },
     { id: "backend-features", title: "Feature flags", desc: "Enable or disable customer-facing features" },
     { id: "backend-webhooks", title: "Webhooks", desc: "Receive entity and event notifications" },
     { id: "backend-locale", title: "Locale & format", desc: "Date and number format for the dashboard" },
@@ -243,6 +257,25 @@ export function SettingsSectionCards(props: Props) {
         </div>
       </div>
 
+      {props.isPlatformAdmin && (
+        <div className="settings-cards-group">
+          <h2 className="settings-cards-group-title">Platform: tenant dashboard</h2>
+          <p className="settings-cards-group-desc" style={{ marginBottom: "0.75rem" }}>
+            Enable or disable areas of the dashboard for this tenant. Only platform admins see this section.
+          </p>
+          <div className="settings-cards settings-subcards">
+            <button
+              type="button"
+              className="settings-card settings-subcard"
+              onClick={() => setOpenSection("platform-dashboard-features")}
+            >
+              <h3 className="settings-card-title">Dashboard features</h3>
+              <p className="settings-card-desc">Show or hide Help, Approvals, Activity, Consent, Finance, Integrations, Team, Subscription in the tenant sidebar.</p>
+            </button>
+          </div>
+        </div>
+      )}
+
       {openSection && (
         <SettingsModal
           title={SECTION_TITLES[openSection]}
@@ -253,6 +286,7 @@ export function SettingsSectionCards(props: Props) {
             sectionId={openSection}
             onClose={() => setOpenSection(null)}
             tenantId={tenantId}
+            tenantSlug={props.tenantSlug}
             updateAction={updateAction}
             extraFormFields={extraFormFields}
             branding={branding}
@@ -296,8 +330,15 @@ export function SettingsSectionCards(props: Props) {
     apiKeys={props.apiKeys}
     createApiKeyAction={props.createApiKeyAction}
     revokeApiKeyAction={props.revokeApiKeyAction}
+    customerLoginEnabled={props.customerLoginEnabled}
+    customerLoginAllowSelfSignup={props.customerLoginAllowSelfSignup}
+    endUsers={props.endUsers}
+    inviteEndUserAction={props.inviteEndUserAction}
+    deactivateEndUserFormAction={props.deactivateEndUserFormAction}
+    sendEndUserPasswordResetFormAction={props.sendEndUserPasswordResetFormAction}
             currentConsentTypes={props.currentConsentTypes}
             updateConsentTypesFormAction={props.updateConsentTypesFormAction}
+            dashboardFeatures={props.dashboardFeatures}
           />
         </SettingsModal>
       )}
@@ -347,6 +388,7 @@ function SectionModalContent(
     sectionId: SectionId;
     onClose: () => void;
     tenantId: string;
+    tenantSlug?: string | null;
     updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
     extraFormFields?: Record<string, string>;
     branding?: Branding;
@@ -390,11 +432,29 @@ function SectionModalContent(
     apiKeys?: { id: string; name: string; keyPrefix: string; lastUsedAt: Date | null; createdAt: Date }[];
     createApiKeyAction?: (prev: unknown, formData: FormData) => Promise<{ key?: string; error?: string }>;
     revokeApiKeyAction?: (formData: FormData) => Promise<void>;
+    customerLoginEnabled?: boolean;
+    customerLoginAllowSelfSignup?: boolean;
+    endUsers?: { id: string; email: string; name: string | null; isActive: boolean; lastLoginAt: Date | null; createdAt: Date; inviteToken: string | null }[];
+    inviteEndUserAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
+    deactivateEndUserFormAction?: (formData: FormData) => Promise<void>;
+    sendEndUserPasswordResetFormAction?: (formData: FormData) => Promise<void>;
     currentConsentTypes?: string[];
     updateConsentTypesFormAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
+    dashboardFeatures?: { help: boolean; approvals: boolean; activity: boolean; consent: boolean; finance: boolean; integrations: boolean; team: boolean; subscription: boolean; settings: boolean };
   }
 ) {
   const { sectionId } = props;
+  if (sectionId === "platform-dashboard-features") {
+    const features = props.dashboardFeatures ?? { help: true, approvals: true, activity: true, consent: true, finance: true, integrations: true, team: true, subscription: true, settings: true };
+    return (
+      <PlatformDashboardFeaturesForm
+        key={`dashboard-features-${JSON.stringify(features)}`}
+        updateAction={props.updateAction}
+        extraFormFields={props.extraFormFields}
+        dashboardFeatures={features}
+      />
+    );
+  }
   if (sectionId === "customer-ai") {
     return (
       <div className="settings-modal-body">
@@ -468,6 +528,22 @@ function SectionModalContent(
         apiKeys={props.apiKeys ?? []}
         createApiKeyAction={props.createApiKeyAction}
         revokeApiKeyAction={props.revokeApiKeyAction}
+        tenantSlug={props.tenantSlug}
+        tenantId={props.tenantId}
+      />
+    );
+  }
+  if (sectionId === "backend-customer-logins") {
+    return (
+      <BackendCustomerLoginsForm
+        updateAction={props.updateAction}
+        extraFormFields={props.extraFormFields}
+        customerLoginEnabled={props.customerLoginEnabled ?? false}
+        customerLoginAllowSelfSignup={props.customerLoginAllowSelfSignup ?? false}
+        endUsers={props.endUsers ?? []}
+        inviteEndUserAction={props.inviteEndUserAction}
+        deactivateEndUserFormAction={props.deactivateEndUserFormAction}
+        sendEndUserPasswordResetFormAction={props.sendEndUserPasswordResetFormAction}
       />
     );
   }
@@ -527,6 +603,60 @@ function SectionModalContent(
     );
   }
   return null;
+}
+
+const DASHBOARD_FEATURE_LABELS: Record<string, string> = {
+  help: "Help",
+  approvals: "Approvals",
+  activity: "Activity",
+  consent: "Consent",
+  finance: "Finance",
+  integrations: "Integrations",
+  team: "Team",
+  subscription: "Subscription & billing",
+  settings: "Settings",
+};
+
+function PlatformDashboardFeaturesForm({
+  updateAction,
+  extraFormFields,
+  dashboardFeatures,
+}: {
+  updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
+  dashboardFeatures: { help: boolean; approvals: boolean; activity: boolean; consent: boolean; finance: boolean; integrations: boolean; team: boolean; subscription: boolean; settings: boolean };
+}) {
+  const [state, formAction] = useActionState(updateAction, null);
+  const keys = ["help", "approvals", "activity", "consent", "finance", "integrations", "team", "subscription", "settings"] as const;
+  return (
+    <div className="settings-modal-body">
+      <p className="settings-hint" style={{ marginBottom: "1rem" }}>
+        When disabled, the corresponding item is hidden from the tenant&apos;s dashboard sidebar and the route is inaccessible.
+      </p>
+      <form action={formAction} className="settings-form">
+        <FormExtraFields fields={extraFormFields} />
+        <input type="hidden" name="settingsSection" value="dashboard-features" />
+        <div className="form-group" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          {keys.map((key) => (
+            <label key={key} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <input
+                type="checkbox"
+                name={`featureDashboard${key.charAt(0).toUpperCase()}${key.slice(1)}`}
+                value="1"
+                defaultChecked={dashboardFeatures[key]}
+                key={`${key}-${dashboardFeatures[key]}`}
+              />
+              <span>{DASHBOARD_FEATURE_LABELS[key]}</span>
+            </label>
+          ))}
+        </div>
+        {state && typeof state === "object" && "error" in state ? (
+          <p className="view-error" role="alert">{String((state as { error: string }).error)}</p>
+        ) : null}
+        <button type="submit" className="btn btn-primary">Save</button>
+      </form>
+    </div>
+  );
 }
 
 function CustomerContactForm({
@@ -1079,7 +1209,7 @@ function BackendBrandingForm({
         </div>
         <div className="form-group">
           <label htmlFor="modal-brandingPrimaryColor">Primary color</label>
-          <input id="modal-brandingPrimaryColor" name="brandingPrimaryColor" type="text" defaultValue={branding?.primaryColor} placeholder="#4f46e5" />
+          <input id="modal-brandingPrimaryColor" name="brandingPrimaryColor" type="text" defaultValue={branding?.primaryColor} placeholder="#0d9488" />
         </div>
       </div>
       {state && typeof state === "object" && "error" in state ? <p className="view-error" role="alert">{String((state as { error: string }).error)}</p> : null}
@@ -1494,31 +1624,20 @@ function ConsentTypesForm({
 }
 
 function BackendApiForm({
-  updateAction,
   extraFormFields,
-  branding,
-  home,
-  homeModuleSlug,
-  homeViewId,
-  sidebarOrder,
-  modules,
   apiKeys,
   createApiKeyAction,
   revokeApiKeyAction,
+  tenantSlug,
+  tenantId,
 }: {
-  updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
   extraFormFields?: Record<string, string>;
-  branding?: Branding;
-  home?: Home;
-  homeModuleSlug: string;
-  homeViewId: string;
-  sidebarOrder?: string[];
-  modules: { id: string; name: string; slug: string }[];
   apiKeys: { id: string; name: string; keyPrefix: string; lastUsedAt: Date | null; createdAt: Date }[];
   createApiKeyAction?: (prev: unknown, formData: FormData) => Promise<{ key?: string; error?: string }>;
   revokeApiKeyAction?: (formData: FormData) => Promise<void>;
+  tenantSlug?: string | null;
+  tenantId?: string;
 }) {
-  const [backendState, backendFormAction] = useActionState(updateAction, null);
   const [createState, createFormAction] = useActionState(createApiKeyAction ?? (async () => ({ error: "Not configured" })), null);
   return (
     <div className="settings-form">
@@ -1526,6 +1645,11 @@ function BackendApiForm({
         <div className="settings-single-section" style={{ marginBottom: "1.5rem" }}>
           <h3 className="settings-subheading">API keys</h3>
           <p className="settings-hint">Create multiple keys (e.g. per integration). Each key can be revoked. Use the X-API-Key header when calling the REST API.</p>
+          {(tenantSlug || tenantId) && (
+            <p className="settings-hint" style={{ marginTop: "0.5rem" }}>
+              <strong>Tenant for API:</strong> Use slug <code>{tenantSlug ?? "—"}</code> or tenant ID <code>{tenantId ?? "—"}</code> in the request path. For the Tasc360 API tester, set <code>NEXT_PUBLIC_TENANT_ID</code> to the slug or ID above.
+            </p>
+          )}
           {apiKeys.length > 0 && (
             <table className="entity-table" style={{ marginBottom: "1rem", maxWidth: "100%" }}>
               <thead>
@@ -1570,26 +1694,111 @@ function BackendApiForm({
           {createState?.error && <p className="view-error" role="alert">{createState.error}</p>}
         </div>
       )}
-      <div className="settings-single-section">
-        <h3 className="settings-subheading">Legacy API key (optional)</h3>
-        <p className="settings-hint">Single key stored in settings. Prefer creating keys above so you can revoke them. Leave blank to keep the current value.</p>
-        <form action={backendFormAction} className="settings-form">
-          <FormExtraFields fields={extraFormFields} />
-          <input type="hidden" name="settingsSection" value="backend" />
-          <input type="hidden" name="sidebarOrder" value={JSON.stringify(sidebarOrder ?? modules.map((m) => m.slug))} />
-          <input type="hidden" name="brandingName" value={branding?.name ?? ""} />
-          <input type="hidden" name="brandingLogo" value={branding?.logo ?? ""} />
-          <input type="hidden" name="brandingPrimaryColor" value={branding?.primaryColor ?? ""} />
-          <input type="hidden" name="homeType" value={home?.type ?? "none"} />
-          <input type="hidden" name="homeModuleSlug" value={homeModuleSlug} />
-          <input type="hidden" name="homeViewId" value={homeViewId} />
-          <div className="form-group">
-            <label htmlFor="modal-apiKey">API key</label>
-            <input id="modal-apiKey" name="apiKey" type="password" placeholder="Leave blank to keep current key" autoComplete="off" className="settings-api-key" />
+    </div>
+  );
+}
+
+function BackendCustomerLoginsForm({
+  updateAction,
+  extraFormFields,
+  customerLoginEnabled,
+  customerLoginAllowSelfSignup,
+  endUsers,
+  inviteEndUserAction,
+  deactivateEndUserFormAction,
+  sendEndUserPasswordResetFormAction,
+}: {
+  updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
+  extraFormFields?: Record<string, string>;
+  customerLoginEnabled: boolean;
+  customerLoginAllowSelfSignup: boolean;
+  endUsers: { id: string; email: string; name: string | null; isActive: boolean; lastLoginAt: Date | null; createdAt: Date; inviteToken: string | null }[];
+  inviteEndUserAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
+  deactivateEndUserFormAction?: (formData: FormData) => Promise<void>;
+  sendEndUserPasswordResetFormAction?: (formData: FormData) => Promise<void>;
+}) {
+  const [inviteState, inviteFormAction] = useActionState(inviteEndUserAction ?? (async () => ({ error: "Not configured" })), null);
+  return (
+    <div className="settings-form">
+      <form action={updateAction} className="settings-form">
+        <FormExtraFields fields={extraFormFields} />
+        <input type="hidden" name="settingsSection" value="backend-customer-logins" />
+        <div className="settings-single-section" style={{ marginBottom: "1.5rem" }}>
+          <h3 className="settings-subheading">Settings</h3>
+          <p className="settings-hint">Allow your customers to log in to your custom frontend (or the template). When enabled, you can invite users and optionally allow self-signup.</p>
+          <div className="form-group" style={{ display: "flex", flexDirection: "column", gap: "0.75rem", marginTop: "0.75rem" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <input type="checkbox" name="customerLoginEnabled" value="1" defaultChecked={customerLoginEnabled} />
+              <span>Allow customer logins</span>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <input type="checkbox" name="customerLoginAllowSelfSignup" value="1" defaultChecked={customerLoginAllowSelfSignup} />
+              <span>Allow self-signup (anyone can create an account)</span>
+            </label>
           </div>
-          {backendState && typeof backendState === "object" && "error" in backendState ? <p className="view-error" role="alert">{String((backendState as { error: string }).error)}</p> : null}
-          <button type="submit" className="btn btn-primary">Save</button>
-        </form>
+          <button type="submit" className="btn btn-primary" style={{ marginTop: "0.75rem" }}>Save</button>
+        </div>
+      </form>
+
+      <div className="settings-single-section" style={{ marginBottom: "1.5rem" }}>
+        <h3 className="settings-subheading">Customer accounts</h3>
+        <p className="settings-hint">Invite people by email; they receive a link to set their password. Then they can log in on your custom frontend.</p>
+        {endUsers.length > 0 && (
+          <table className="entity-table" style={{ marginBottom: "1rem", maxWidth: "100%" }}>
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Name</th>
+                <th>Last login</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {endUsers.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.email}</td>
+                  <td>{u.name ?? "—"}</td>
+                  <td>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "—"}</td>
+                  <td>
+                    {!u.isActive ? "Inactive" : u.inviteToken ? "Pending invite" : "Active"}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {u.isActive && !u.inviteToken && deactivateEndUserFormAction && (
+                      <form action={deactivateEndUserFormAction} style={{ display: "inline", marginRight: "0.5rem" }}>
+                        <FormExtraFields fields={extraFormFields} />
+                        <input type="hidden" name="endUserId" value={u.id} />
+                        <button type="submit" className="btn btn-secondary" style={{ fontSize: "0.8125rem" }} onClick={(e) => { if (!confirm("Deactivate this account? They will not be able to log in.")) e.preventDefault(); }}>Deactivate</button>
+                      </form>
+                    )}
+                    {u.isActive && sendEndUserPasswordResetFormAction && (
+                      <form action={sendEndUserPasswordResetFormAction} style={{ display: "inline" }}>
+                        <FormExtraFields fields={extraFormFields} />
+                        <input type="hidden" name="endUserId" value={u.id} />
+                        <button type="submit" className="btn btn-secondary" style={{ fontSize: "0.8125rem" }}>Send reset email</button>
+                      </form>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {inviteEndUserAction && (
+          <form action={inviteFormAction} style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "0.5rem" }}>
+            <FormExtraFields fields={extraFormFields} />
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label htmlFor="endUserEmail">Email</label>
+              <input id="endUserEmail" name="email" type="email" placeholder="customer@example.com" className="form-control" style={{ maxWidth: "240px" }} required />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label htmlFor="endUserName">Name (optional)</label>
+              <input id="endUserName" name="name" type="text" placeholder="Jane" className="form-control" style={{ maxWidth: "160px" }} />
+            </div>
+            <button type="submit" className="btn btn-primary">Invite</button>
+          </form>
+        )}
+        {inviteState?.error && <p className="view-error" role="alert" style={{ marginTop: "0.5rem" }}>{inviteState.error}</p>}
       </div>
     </div>
   );

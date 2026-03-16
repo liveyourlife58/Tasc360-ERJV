@@ -45,10 +45,10 @@ export function LoginForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="login-form">
+    <form onSubmit={handleSubmit} className="space-y-4">
       {from && <input type="hidden" name="from" value={from} />}
-      <div className="form-group">
-        <label htmlFor="workspace">Workspace</label>
+      <div>
+        <label htmlFor="workspace" className="block text-sm font-medium text-slate-700 mb-1">Workspace</label>
         <input
           id="workspace"
           name="workspace"
@@ -56,34 +56,41 @@ export function LoginForm({
           autoComplete="username"
           placeholder="e.g. acme"
           required
+          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
         />
       </div>
-      <div className="form-group">
-        <label htmlFor="email">Email</label>
+      <div>
+        <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">Email</label>
         <input
           id="email"
           name="email"
           type="email"
           autoComplete="email"
           required
+          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
         />
       </div>
-      <div className="form-group">
-        <label htmlFor="password">Password</label>
+      <div>
+        <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">Password</label>
         <input
           id="password"
           name="password"
           type="password"
           autoComplete="current-password"
           required
+          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
         />
       </div>
       {error && (
-        <p className="login-error" role="alert">
+        <p className="p-2.5 px-3 text-sm text-red-700 bg-red-50 rounded-lg border border-red-100" role="alert">
           {error}
         </p>
       )}
-      <button type="submit" className="btn btn-primary login-submit" disabled={pending}>
+      <button
+        type="submit"
+        className="w-full mt-2 py-2.5 px-4 rounded-lg font-medium text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-60 disabled:pointer-events-none transition-colors"
+        disabled={pending}
+      >
         {pending ? "Signing in…" : "Sign in"}
       </button>
     </form>

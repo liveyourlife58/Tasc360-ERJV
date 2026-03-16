@@ -23,7 +23,7 @@ export async function generateViewport({
   const tenant = await getTenantBySlug(slug);
   if (!tenant) return {};
   const site = (tenant.settings as Record<string, unknown>)?.site as Record<string, unknown> | undefined;
-  const primaryColor = (site?.primaryColor as string) ?? "#4f46e5";
+  const primaryColor = (site?.primaryColor as string) ?? "#0d9488";
   return { themeColor: primaryColor };
 }
 
@@ -84,7 +84,7 @@ export default async function SiteLayout({
   const site = (settings.site as Record<string, unknown>) ?? {};
   const siteName = (site.name as string) ?? tenant.name;
   const logo = site.logo as string | undefined;
-  const primaryColor = (site.primaryColor as string) ?? "#4f46e5";
+  const primaryColor = (site.primaryColor as string) ?? "#0d9488";
   const footerHtml = (site.footerHtml as string) ?? "";
   const showCookieBanner = (site.showCookieBanner as boolean) === true;
   const cookiePolicyUrl = (site.cookiePolicyUrl as string) || null;

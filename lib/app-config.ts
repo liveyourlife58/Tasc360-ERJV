@@ -19,7 +19,17 @@ export const APP_CONFIG = {
   exportEntitiesPerModuleLimit: 2000,
   /** Max request body size (bytes) for /api/v1 POST/PATCH. 1MB default. */
   apiMaxBodyBytes: 1024 * 1024,
+  /** Default free trial (days) for new subscriptions when STRIPE_TRIAL_DAYS is not set. 0 = no trial. */
+  defaultTrialDays: 14,
 } as const;
+
+/** Free trial length in days for new subscriptions. From env STRIPE_TRIAL_DAYS or default (14). Use 0 to disable. */
+export function getTrialDays(): number {
+  const env = process.env.STRIPE_TRIAL_DAYS;
+  if (env === "" || env === undefined) return APP_CONFIG.defaultTrialDays;
+  const n = parseInt(env, 10);
+  return Number.isNaN(n) || n < 0 ? 0 : Math.min(365, n);
+}
 
 export function getSubscriptionGraceDays(): number {
   const env = process.env.SUBSCRIPTION_GRACE_DAYS;

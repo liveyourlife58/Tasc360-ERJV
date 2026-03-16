@@ -7,6 +7,7 @@ import { prisma } from "./prisma";
 
 export type AuditEventType =
   | "auth_login"
+  | "auth_signup"
   | "auth_password_reset_requested"
   | "auth_password_reset_completed"
   | "user_invited"
@@ -21,7 +22,11 @@ export type AuditEventType =
   | "journal_entry_created"
   | "fiscal_period_closed"
   | "developer_setup_enabled"
-  | "developer_setup_disabled";
+  | "developer_setup_disabled"
+  | "end_user_invited"
+  | "end_user_deactivated"
+  | "end_user_password_reset_sent"
+  | "end_user_login";
 
 export async function logAuditEvent(
   tenantId: string,

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getSessionFromCookie } from "@/lib/auth";
-import { checkLoginRateLimit, checkForgotPasswordRateLimit } from "@/lib/auth-rate-limit";
+import { checkLoginRateLimit, checkForgotPasswordRateLimit, checkSignupRateLimit } from "@/lib/auth-rate-limit";
 
 const DASHBOARD_PREFIX = "/dashboard";
 const AUTH_RATE_LIMIT_RETRY_AFTER_SECONDS = 900; // 15 min
@@ -43,6 +43,7 @@ export function middleware(request: NextRequest) {
 
   const isLoginPost = request.method === "POST" && (pathname === "/login" || pathname === "/api/auth/login");
   const isForgotPost = request.method === "POST" && (pathname === "/forgot-password" || pathname === "/api/auth/forgot-password");
+  const isSignupPost = request.method === "POST" && (pathname === "/signup" || pathname === "/api/auth/signup");
   if (isLoginPost) {
     const ip = getClientIp(request);
     if (!checkLoginRateLimit(ip)) {
@@ -63,6 +64,21 @@ export function middleware(request: NextRequest) {
     if (!checkForgotPasswordRateLimit(ip)) {
       return new NextResponse(
         JSON.stringify({ error: "Too many reset requests from this address. Try again in 15 minutes." }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": String(AUTH_RATE_LIMIT_RETRY_AFTER_SECONDS),
+          },
+        }
+      );
+    }
+  }
+  if (isSignupPost) {
+    const ip = getClientIp(request);
+    if (!checkSignupRateLimit(ip)) {
+      return new NextResponse(
+        JSON.stringify({ error: "Too many signup attempts from this address. Try again in 15 minutes." }),
         {
           status: 429,
           headers: {
@@ -157,6 +173,7 @@ export const config = {
     "/api/health",
     "/api/ready",
     "/api/auth/login",
+    "/api/auth/signup",
     "/api/auth/forgot-password",
     "/api/v1/:path*",
     "/api/webhooks/:path*",
@@ -166,7 +183,9 @@ export const config = {
     "/s/:path*",
     "/",
     "/login",
+    "/signup",
     "/forgot-password",
     "/reset-password",
+    "/set-customer-password",
   ],
 };
