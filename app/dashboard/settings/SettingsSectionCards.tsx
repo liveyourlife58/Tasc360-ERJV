@@ -5,6 +5,7 @@ import { useActionState } from "react";
 import { DeveloperSetupToggle } from "./DeveloperSetupToggle";
 import { GenerateSiteAiForm } from "./GenerateSiteAiForm";
 import { BlobUploadInput } from "@/components/dashboard/BlobUploadInput";
+import { DashboardModulesHubPanel } from "@/components/dashboard/DashboardModulesHubPanel";
 
 type Branding = { name?: string; logo?: string; primaryColor?: string };
 type Home =
@@ -24,6 +25,7 @@ type SectionId =
   | "customer-cookie-banner"
   | "backend-branding"
   | "backend-home"
+  | "backend-modules-hub"
   | "backend-payments"
   | "backend-api"
   | "backend-customer-logins"
@@ -46,6 +48,7 @@ const SECTION_TITLES: Record<SectionId, string> = {
   "customer-cookie-banner": "Cookie banner",
   "backend-branding": "Branding",
   "backend-home": "Default home",
+  "backend-modules-hub": "Modules & data",
   "backend-payments": "Payments (Stripe)",
   "backend-api": "API access",
   "backend-customer-logins": "End-user accounts",
@@ -139,6 +142,8 @@ type Props = {
   updateAllowDeveloperSetupFormAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
   /** Platform admin only: enable/disable dashboard areas for this tenant. */
   dashboardFeatures?: { help: boolean; approvals: boolean; activity: boolean; consent: boolean; finance: boolean; integrations: boolean; team: boolean; subscription: boolean; settings: boolean };
+  /** Same order as dashboard home / sidebar (templates, AI, import/export, shortcuts). */
+  hubOrderedModules: { id: string; name: string; slug: string }[];
 };
 
 const DEVELOPER_SECTION_IDS: SectionId[] = ["backend-api", "backend-webhooks"];
@@ -200,6 +205,11 @@ export function SettingsSectionCards(props: Props) {
   const allBackendSections: { id: SectionId; title: string; desc: string }[] = [
     { id: "backend-branding", title: "Branding", desc: "Dashboard name, logo, primary color" },
     { id: "backend-home", title: "Default home", desc: "Where to go after login" },
+    {
+      id: "backend-modules-hub",
+      title: "Modules & data",
+      desc: "Templates, AI builder, import/export, and links to your modules",
+    },
     { id: "backend-payments", title: "Payments (Stripe)", desc: "Accept payments from your customers" },
     { id: "backend-api", title: "API access", desc: "API keys for REST API" },
     { id: "backend-customer-logins", title: "End-user accounts", desc: "Customer logins for your custom frontend" },
@@ -339,6 +349,7 @@ export function SettingsSectionCards(props: Props) {
             currentConsentTypes={props.currentConsentTypes}
             updateConsentTypesFormAction={props.updateConsentTypesFormAction}
             dashboardFeatures={props.dashboardFeatures}
+            hubOrderedModules={props.hubOrderedModules}
           />
         </SettingsModal>
       )}
@@ -441,6 +452,7 @@ function SectionModalContent(
     currentConsentTypes?: string[];
     updateConsentTypesFormAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
     dashboardFeatures?: { help: boolean; approvals: boolean; activity: boolean; consent: boolean; finance: boolean; integrations: boolean; team: boolean; subscription: boolean; settings: boolean };
+    hubOrderedModules: { id: string; name: string; slug: string }[];
   }
 ) {
   const { sectionId } = props;
@@ -516,6 +528,13 @@ function SectionModalContent(
   }
   if (sectionId === "backend-home") {
     return <BackendHomeForm {...props} />;
+  }
+  if (sectionId === "backend-modules-hub") {
+    return (
+      <div className="settings-modal-body">
+        <DashboardModulesHubPanel tenantId={props.tenantId} orderedModules={props.hubOrderedModules} />
+      </div>
+    );
   }
   if (sectionId === "backend-payments") {
     return <BackendPaymentsForm stripeConnectConfig={props.stripeConnectConfig} connectStripeAction={props.connectStripeAction} />;

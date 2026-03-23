@@ -9,7 +9,12 @@ type ViewItem = {
   name: string;
   columns: string[];
   viewType?: string;
-  settings?: { boardColumnField?: string; dateField?: string } | null;
+  settings?: {
+    boardColumnField?: string;
+    dateField?: string;
+    boardLaneSource?: string;
+    boardLaneValues?: unknown;
+  } | null;
   filter?: unknown[];
   sort?: unknown[];
 };
@@ -29,6 +34,9 @@ export function ModuleViewSelectorRow({
   setDefaultViewAction,
   fieldSlugs,
   selectFieldSlugs,
+  selectFieldsMeta,
+  relationFieldSlugs,
+  relationFieldsMeta,
   dateFieldSlugs,
   updateViewAction,
   deleteViewAction,
@@ -41,6 +49,9 @@ export function ModuleViewSelectorRow({
   setDefaultViewAction?: (moduleSlug: string, viewId: string | null) => Promise<{ error?: string }>;
   fieldSlugs: string[];
   selectFieldSlugs?: string[];
+  selectFieldsMeta?: { slug: string; name: string; options: string[] }[];
+  relationFieldSlugs?: string[];
+  relationFieldsMeta?: { slug: string; name: string; options: { id: string; label: string }[] }[];
   dateFieldSlugs?: string[];
   updateViewAction: (viewId: string, moduleSlug: string, prev: unknown, formData: FormData) => Promise<unknown>;
   deleteViewAction: (viewId: string, moduleSlug: string, prev: unknown, formData: FormData) => Promise<unknown>;
@@ -58,6 +69,9 @@ export function ModuleViewSelectorRow({
         setDefaultViewAction={setDefaultViewAction}
         fieldSlugs={fieldSlugs}
         selectFieldSlugs={selectFieldSlugs}
+        selectFieldsMeta={selectFieldsMeta}
+        relationFieldSlugs={relationFieldSlugs}
+        relationFieldsMeta={relationFieldsMeta}
         dateFieldSlugs={dateFieldSlugs}
         updateViewAction={updateViewAction}
         deleteViewAction={deleteViewAction}

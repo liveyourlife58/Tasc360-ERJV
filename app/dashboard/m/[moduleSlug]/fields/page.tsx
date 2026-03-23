@@ -8,7 +8,9 @@ import {
   removeFieldFromModule,
   reorderFieldInModule,
   updateFieldInModule,
+  updateModuleListOrderFormAction,
 } from "@/app/dashboard/actions";
+import { getModuleEntityListCreatedAtOrder } from "@/lib/module-settings";
 import { AddFieldForm } from "@/components/dashboard/AddFieldForm";
 import { FieldListRow } from "@/components/dashboard/FieldListRow";
 
@@ -29,7 +31,11 @@ export default async function ModuleFieldsPage({
 
   const otherModules = await prisma.module.findMany({
     where: { tenantId, isActive: true, id: { not: module_.id } },
-    select: { slug: true, name: true },
+    select: {
+      slug: true,
+      name: true,
+      fields: { orderBy: { sortOrder: "asc" }, select: { slug: true, name: true } },
+    },
     orderBy: { sortOrder: "asc" },
   });
 
@@ -56,11 +62,34 @@ export default async function ModuleFieldsPage({
       </p>
 
       <section style={{ marginBottom: "2rem" }}>
+        <h2 className="subscription-subheading">Record list order</h2>
+        <p className="settings-intro" style={{ marginBottom: "0.75rem" }}>
+          Default order when loading records in this module (by creation time). If a saved view defines its own sort, that sort is applied after load.
+        </p>
+        <form action={updateModuleListOrderFormAction} className="settings-form" style={{ maxWidth: 420 }}>
+          <input type="hidden" name="moduleSlug" value={moduleSlug} />
+          <div className="form-group">
+            <label htmlFor="listOrder">Created date</label>
+            <select id="listOrder" name="listOrder" defaultValue={getModuleEntityListCreatedAtOrder(module_)}>
+              <option value="desc">Newest first</option>
+              <option value="asc">Oldest first</option>
+            </select>
+          </div>
+          <button type="submit" className="btn btn-primary">
+            Save list order
+          </button>
+        </form>
+      </section>
+
+      <section style={{ marginBottom: "2rem" }}>
         <h2 className="subscription-subheading">Add field</h2>
         <AddFieldForm
-          moduleSlug={moduleSlug}
           action={addFieldToModule.bind(null, moduleSlug)}
-          otherModuleSlugs={otherModules.map((m) => ({ slug: m.slug, name: m.name }))}
+          otherModules={otherModules.map((m) => ({
+            slug: m.slug,
+            name: m.name,
+            fields: m.fields.map((f) => ({ slug: f.slug, name: f.name })),
+          }))}
         />
       </section>
 
@@ -93,7 +122,11 @@ export default async function ModuleFieldsPage({
                 reorderAction={reorderFieldInModule}
                 updateAction={updateFieldInModule}
                 fieldRecordCount={recordCountByFieldId.get(field.id) ?? 0}
-                otherModuleSlugs={otherModules.map((m) => ({ slug: m.slug, name: m.name }))}
+                otherModules={otherModules.map((m) => ({
+                  slug: m.slug,
+                  name: m.name,
+                  fields: m.fields.map((f) => ({ slug: f.slug, name: f.name })),
+                }))}
               />
               ))}
             </tbody>

@@ -10,10 +10,13 @@ export function RelationMultiCell({
   entityIds,
   targetModuleSlug,
   fieldName,
+  labelById,
 }: {
   entityIds: string[];
   targetModuleSlug: string;
   fieldName: string;
+  /** When set (e.g. from list page), show resolved labels instead of only "N selected". */
+  labelById?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -45,7 +48,14 @@ export function RelationMultiCell({
   }
 
   const count = entityIds.length;
-  const label = count === 1 ? "1 selected" : `${count} selected`;
+  const resolved =
+    labelById && count > 0
+      ? entityIds.map((id) => labelById[id] ?? id.slice(0, 8)).join(", ")
+      : null;
+  const truncated =
+    resolved && resolved.length > 72 ? `${resolved.slice(0, 69)}…` : resolved;
+  const label =
+    truncated ?? (count === 1 ? "1 selected" : `${count} selected`);
 
   return (
     <>
@@ -60,7 +70,9 @@ export function RelationMultiCell({
           color: "var(--color-link, #2563eb)",
           textDecoration: "underline",
           fontSize: "inherit",
+          textAlign: "left",
         }}
+        title={resolved && truncated !== resolved ? resolved : undefined}
       >
         {label}
       </button>

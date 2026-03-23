@@ -7,6 +7,7 @@ const MESSAGES: Record<string, string> = {
   saved: "Saved.",
   created: "Created.",
   deleted: "Deleted.",
+  hard_deleted: "Record permanently removed.",
   updated: "Updated.",
   exported: "Export downloaded.",
   restored: "Restored.",

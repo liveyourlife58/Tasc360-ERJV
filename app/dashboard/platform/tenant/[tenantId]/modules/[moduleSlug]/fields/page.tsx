@@ -9,9 +9,12 @@ import {
   updateFieldInModuleAsPlatformAdminFormAction,
   removeFieldFromModuleAsPlatformAdminFormAction,
   reorderFieldInModuleAsPlatformAdminFormAction,
+  updateModuleListOrderAsPlatformAdminFormAction,
 } from "@/app/dashboard/actions";
+import { getModuleEntityListCreatedAtOrder } from "@/lib/module-settings";
 import { AddFieldForm } from "@/components/dashboard/AddFieldForm";
 import { FieldListRow } from "@/components/dashboard/FieldListRow";
+import { PlatformModuleIdentityForm } from "../../PlatformModuleIdentityForm";
 
 export default async function PlatformTenantModuleFieldsPage({
   params,
@@ -43,7 +46,11 @@ export default async function PlatformTenantModuleFieldsPage({
 
   const otherModules = await prisma.module.findMany({
     where: { tenantId, isActive: true, id: { not: module_.id } },
-    select: { slug: true, name: true },
+    select: {
+      slug: true,
+      name: true,
+      fields: { orderBy: { sortOrder: "asc" }, select: { slug: true, name: true } },
+    },
     orderBy: { sortOrder: "asc" },
   });
 
@@ -77,12 +84,50 @@ export default async function PlatformTenantModuleFieldsPage({
       </p>
 
       <section style={{ marginBottom: "2rem" }}>
+        <h2 className="subscription-subheading">Module name &amp; slug</h2>
+        <p className="settings-intro" style={{ marginBottom: "1rem" }}>
+          Platform only. Renaming is safe; changing the slug updates URLs for this module but can break relation fields
+          and bookmarks until those are fixed.
+        </p>
+        <PlatformModuleIdentityForm
+          tenantId={tenantId}
+          moduleSlug={moduleSlug}
+          initialName={module_.name}
+          initialSlug={module_.slug}
+        />
+      </section>
+
+      <section style={{ marginBottom: "2rem" }}>
+        <h2 className="subscription-subheading">Record list order</h2>
+        <p className="settings-intro" style={{ marginBottom: "0.75rem" }}>
+          Same setting as <strong>Manage fields</strong> in the tenant dashboard: default order when loading records (by creation time). Saved views with their own sort still apply that sort after load.
+        </p>
+        <form action={updateModuleListOrderAsPlatformAdminFormAction} className="settings-form" style={{ maxWidth: 420 }}>
+          <input type="hidden" name="targetTenantId" value={tenantId} />
+          <input type="hidden" name="moduleSlug" value={moduleSlug} />
+          <div className="form-group">
+            <label htmlFor="platformListOrder">Created date</label>
+            <select id="platformListOrder" name="listOrder" defaultValue={getModuleEntityListCreatedAtOrder(module_)}>
+              <option value="desc">Newest first</option>
+              <option value="asc">Oldest first</option>
+            </select>
+          </div>
+          <button type="submit" className="btn btn-primary">
+            Save list order
+          </button>
+        </form>
+      </section>
+
+      <section style={{ marginBottom: "2rem" }}>
         <h2 className="subscription-subheading">Add field</h2>
         <AddFieldForm
-          moduleSlug={moduleSlug}
           action={addFieldToModuleAsPlatformAdminFormAction}
           extraFormFields={extraFormFields}
-          otherModuleSlugs={otherModules.map((m) => ({ slug: m.slug, name: m.name }))}
+          otherModules={otherModules.map((m) => ({
+            slug: m.slug,
+            name: m.name,
+            fields: m.fields.map((f) => ({ slug: f.slug, name: f.name })),
+          }))}
         />
       </section>
 
@@ -116,7 +161,11 @@ export default async function PlatformTenantModuleFieldsPage({
                   updateFormAction={updateFieldInModuleAsPlatformAdminFormAction}
                   extraFormFields={extraFormFields}
                   fieldRecordCount={recordCountByFieldId.get(field.id) ?? 0}
-                  otherModuleSlugs={otherModules.map((m) => ({ slug: m.slug, name: m.name }))}
+                  otherModules={otherModules.map((m) => ({
+                    slug: m.slug,
+                    name: m.name,
+                    fields: m.fields.map((f) => ({ slug: f.slug, name: f.name })),
+                  }))}
                 />
               ))}
             </tbody>

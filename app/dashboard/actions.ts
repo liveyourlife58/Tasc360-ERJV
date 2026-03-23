@@ -911,8 +911,32 @@ export async function updateView(
   const viewType = viewTypeRaw === "board" || viewTypeRaw === "calendar" ? viewTypeRaw : "list";
   const boardColumnField = (formData.get("boardColumnField") as string)?.trim() || null;
   const dateField = (formData.get("dateField") as string)?.trim() || null;
+  const boardLaneSourceRaw = (formData.get("boardLaneSource") as string)?.trim();
+  let boardLaneSource: "data" | "all_options" | "custom" =
+    boardLaneSourceRaw === "all_options" || boardLaneSourceRaw === "custom" ? boardLaneSourceRaw : "data";
+  let boardLaneValues: string[] = [];
+  if (boardLaneSource === "custom") {
+    const json = (formData.get("boardLaneValuesJson") as string)?.trim();
+    if (json) {
+      try {
+        const parsed = JSON.parse(json) as unknown;
+        if (Array.isArray(parsed)) {
+          boardLaneValues = parsed.filter((x): x is string => typeof x === "string");
+        }
+      } catch {
+        boardLaneValues = [];
+      }
+    }
+    if (boardLaneValues.length === 0) boardLaneSource = "data";
+  }
   const settings: Record<string, unknown> = {};
-  if (viewType === "board" && boardColumnField) settings.boardColumnField = boardColumnField;
+  if (viewType === "board" && boardColumnField) {
+    settings.boardColumnField = boardColumnField;
+    settings.boardLaneSource = boardLaneSource;
+    if (boardLaneSource === "custom" && boardLaneValues.length > 0) {
+      settings.boardLaneValues = boardLaneValues;
+    }
+  }
   if (viewType === "calendar" && dateField) settings.dateField = dateField;
 
   let filter: unknown = [];
@@ -977,6 +1001,56 @@ export async function setModuleDefaultView(moduleSlug: string, viewId: string | 
   });
   revalidatePath(`/dashboard/m/${moduleSlug}`);
   return {};
+}
+
+/** Persist module.settings.listOrder ("asc" | "desc") for default record ordering by createdAt. Form: moduleSlug (hidden), listOrder. */
+export async function updateModuleListOrderFormAction(formData: FormData) {
+  await requireDashboardPermission(PERMISSIONS.modulesManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) throw new Error("Unauthorized");
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  if (!moduleSlug) throw new Error("Missing module.");
+  const raw = (formData.get("listOrder") as string)?.trim();
+  const order: "asc" | "desc" = raw === "asc" ? "asc" : "desc";
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug, isActive: true },
+    select: { id: true, settings: true },
+  });
+  if (!module_) throw new Error("Module not found.");
+  const { mergeModuleListOrder } = await import("@/lib/module-settings");
+  const settings = mergeModuleListOrder((module_.settings as Record<string, unknown>) ?? null, order);
+  await prisma.module.update({
+    where: { id: module_.id },
+    data: { settings: settings as object },
+  });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/fields`);
+  redirect(`/dashboard/m/${moduleSlug}/fields`);
+}
+
+/** Platform admin: same as updateModuleListOrderFormAction for another tenant. Form: targetTenantId, moduleSlug, listOrder. */
+export async function updateModuleListOrderAsPlatformAdminFormAction(formData: FormData) {
+  await requirePlatformAdmin();
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  if (!targetTenantId || !moduleSlug) throw new Error("Missing target tenant or module.");
+  const raw = (formData.get("listOrder") as string)?.trim();
+  const order: "asc" | "desc" = raw === "asc" ? "asc" : "desc";
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId: targetTenantId, slug: moduleSlug, isActive: true },
+    select: { id: true, settings: true },
+  });
+  if (!module_) throw new Error("Module not found.");
+  const { mergeModuleListOrder } = await import("@/lib/module-settings");
+  const settings = mergeModuleListOrder((module_.settings as Record<string, unknown>) ?? null, order);
+  await prisma.module.update({
+    where: { id: module_.id },
+    data: { settings: settings as object },
+  });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/fields`);
+  revalidatePath(platformFieldsRedirect(targetTenantId, moduleSlug));
+  redirect(platformFieldsRedirect(targetTenantId, moduleSlug));
 }
 
 /** Export tenant data as JSON (modules, fields, entities). For backup/portability. */
@@ -2056,7 +2130,14 @@ export async function addFieldToModule(moduleSlug: string, _prev: unknown, formD
   }
   if (fieldType === "relation" || fieldType === "relation-multi") {
     const target = (formData.get("targetModuleSlug") as string)?.trim();
-    if (target) settings.targetModuleSlug = target;
+    if (target) {
+      settings.targetModuleSlug = target;
+      const displayField = (formData.get("displayFieldSlug") as string)?.trim();
+      if (displayField) settings.displayFieldSlug = displayField;
+    }
+    if (formData.get("showBacklinksOnTarget") === "1" || formData.get("showBacklinksOnTarget") === "on") {
+      settings.showBacklinksOnTarget = true;
+    }
   }
   const sortOrder = module_.fields.length > 0 ? Math.max(...module_.fields.map((f) => f.sortOrder)) + 1 : 0;
   await prisma.field.create({
@@ -2108,7 +2189,14 @@ export async function updateFieldInModule(moduleSlug: string, fieldSlug: string,
   }
   if (fieldType === "relation" || fieldType === "relation-multi") {
     const target = (formData.get("targetModuleSlug") as string)?.trim();
-    if (target) settings.targetModuleSlug = target;
+    if (target) {
+      settings.targetModuleSlug = target;
+      const displayField = (formData.get("displayFieldSlug") as string)?.trim();
+      if (displayField) settings.displayFieldSlug = displayField;
+    }
+    if (formData.get("showBacklinksOnTarget") === "1" || formData.get("showBacklinksOnTarget") === "on") {
+      settings.showBacklinksOnTarget = true;
+    }
   }
   await prisma.field.update({
     where: { id: field.id },
@@ -2236,6 +2324,61 @@ export async function createModuleAsPlatformAdminFormAction(prev: unknown, formD
   redirect(platformModulesRedirect(targetTenantId));
 }
 
+/**
+ * Platform admin: change module display name and URL slug.
+ * formData: targetTenantId, moduleSlug (current), name, slug (desired slug, normalized).
+ * Changing slug breaks relation fields that still reference the old targetModuleSlug until those fields are updated.
+ */
+export async function updateModuleIdentityAsPlatformAdminFormAction(
+  _prev: unknown,
+  formData: FormData
+): Promise<{ error?: string }> {
+  try {
+    await requirePlatformAdmin();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  const currentSlug = (formData.get("moduleSlug") as string)?.trim();
+  const name = (formData.get("name") as string)?.trim();
+  const slugRaw = (formData.get("slug") as string)?.trim();
+  if (!targetTenantId || !currentSlug) return { error: "Missing tenant or module." };
+  if (!name) return { error: "Module name is required." };
+  let newSlug =
+    slugRaw
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, "_")
+      .replace(/^_|_$/g, "") || "";
+  if (!newSlug) return { error: "Module slug is required (letters, numbers, underscores)." };
+
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId: targetTenantId, slug: currentSlug },
+    select: { id: true, slug: true },
+  });
+  if (!module_) return { error: "Module not found." };
+
+  if (newSlug !== currentSlug) {
+    const clash = await prisma.module.findFirst({
+      where: { tenantId: targetTenantId, slug: newSlug, id: { not: module_.id } },
+      select: { id: true },
+    });
+    if (clash) return { error: `Another module already uses slug "${newSlug}".` };
+  }
+
+  await prisma.module.update({
+    where: { id: module_.id },
+    data: { name, slug: newSlug },
+  });
+
+  revalidatePath(platformModulesRedirect(targetTenantId));
+  revalidatePath(platformFieldsRedirect(targetTenantId, currentSlug));
+  revalidatePath(platformFieldsRedirect(targetTenantId, newSlug));
+  revalidatePath(`/dashboard/m/${currentSlug}`, "layout");
+  revalidatePath(`/dashboard/m/${newSlug}`, "layout");
+
+  redirect(platformFieldsRedirect(targetTenantId, newSlug));
+}
+
 /** Platform admin: disable module (set isActive false). formData: targetTenantId, moduleSlug. Accepts (formData) or (prev, formData). */
 export async function disableModuleAsPlatformAdminFormAction(prevOrFormData: unknown, formDataArg?: FormData) {
   const formData = formDataArg instanceof FormData ? formDataArg : (prevOrFormData as FormData);
@@ -2291,6 +2434,110 @@ export async function deleteModuleAsPlatformAdminFormAction(prevOrFormData: unkn
   redirect(platformModulesRedirect(targetTenantId));
 }
 
+/** Platform admin (current tenant session): restore soft-deleted entity without tenant entities:write. */
+export async function restoreEntityAsPlatformAdmin(
+  entityId: string,
+  moduleSlug: string
+): Promise<{ error?: string }> {
+  try {
+    await requirePlatformAdmin();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug, isActive: true },
+    select: { id: true },
+  });
+  if (!module_) return { error: "Module not found." };
+  const entity = await prisma.entity.findFirst({
+    where: { id: entityId, tenantId, moduleId: module_.id, deletedAt: { not: null } },
+    select: { id: true },
+  });
+  if (!entity) return { error: "Entity not found or not deleted." };
+  await prisma.entity.update({
+    where: { id: entityId },
+    data: { deletedAt: null },
+  });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/${entityId}`);
+  redirect(`/dashboard/m/${moduleSlug}`);
+}
+
+/**
+ * Platform admin (current tenant session): remove the entity row permanently.
+ * Blocked when order lines, payments, or ledger account lines reference this entity.
+ */
+export async function hardDeleteEntityAsPlatformAdmin(
+  entityId: string,
+  moduleSlug: string
+): Promise<{ error?: string }> {
+  try {
+    await requirePlatformAdmin();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) return { error: "Unauthorized" };
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug, isActive: true },
+    select: { id: true },
+  });
+  if (!module_) return { error: "Module not found." };
+  const entity = await prisma.entity.findFirst({
+    where: { id: entityId, tenantId, moduleId: module_.id },
+    select: { id: true },
+  });
+  if (!entity) return { error: "Entity not found." };
+
+  const ticketsSold = await prisma.orderLine.count({ where: { entityId } });
+  if (ticketsSold > 0) {
+    return {
+      error:
+        "Cannot permanently delete: order lines exist (e.g. tickets sold). Resolve orders first.",
+    };
+  }
+  const payments = await prisma.payment.count({ where: { entityId } });
+  if (payments > 0) {
+    return { error: "Cannot permanently delete: payment records are linked to this entity." };
+  }
+  const ledgerAccounts = await prisma.ledgerLine.count({ where: { accountEntityId: entityId } });
+  if (ledgerAccounts > 0) {
+    return {
+      error:
+        "Cannot permanently delete: this entity is used as a ledger account. Remove or reassign ledger lines first.",
+    };
+  }
+
+  const userId = (await headers()).get("x-user-id");
+  await prisma.event.create({
+    data: {
+      tenantId,
+      entityId,
+      eventType: "entity_hard_deleted",
+      data: { moduleSlug } as object,
+      createdBy: userId,
+    },
+  });
+  try {
+    await prisma.entity.delete({ where: { id: entityId } });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+      return {
+        error:
+          "Database refused delete (record is still referenced). Remove related data or contact support.",
+      };
+    }
+    throw e;
+  }
+  const { fireWebhook } = await import("@/lib/webhooks");
+  fireWebhook(tenantId, "entity.permanently_deleted", { entityId, moduleSlug });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/${entityId}`);
+  redirect(`/dashboard/m/${moduleSlug}?success=hard_deleted`);
+}
+
 /** Platform admin: add field. formData: targetTenantId, moduleSlug, name, slug?, fieldType, isRequired?, options?, targetModuleSlug? */
 export async function addFieldToModuleAsPlatformAdminFormAction(_prev: unknown, formData: FormData) {
   await requirePlatformAdmin();
@@ -2318,7 +2565,14 @@ export async function addFieldToModuleAsPlatformAdminFormAction(_prev: unknown, 
   }
   if (fieldType === "relation" || fieldType === "relation-multi") {
     const target = (formData.get("targetModuleSlug") as string)?.trim();
-    if (target) settings.targetModuleSlug = target;
+    if (target) {
+      settings.targetModuleSlug = target;
+      const displayField = (formData.get("displayFieldSlug") as string)?.trim();
+      if (displayField) settings.displayFieldSlug = displayField;
+    }
+    if (formData.get("showBacklinksOnTarget") === "1" || formData.get("showBacklinksOnTarget") === "on") {
+      settings.showBacklinksOnTarget = true;
+    }
   }
   const sortOrder = module_.fields.length > 0 ? Math.max(...module_.fields.map((f) => f.sortOrder)) + 1 : 0;
   await prisma.field.create({
@@ -2376,7 +2630,14 @@ export async function updateFieldInModuleAsPlatformAdminFormAction(prevOrFormDat
   }
   if (fieldType === "relation" || fieldType === "relation-multi") {
     const target = (formData.get("targetModuleSlug") as string)?.trim();
-    if (target) settings.targetModuleSlug = target;
+    if (target) {
+      settings.targetModuleSlug = target;
+      const displayField = (formData.get("displayFieldSlug") as string)?.trim();
+      if (displayField) settings.displayFieldSlug = displayField;
+    }
+    if (formData.get("showBacklinksOnTarget") === "1" || formData.get("showBacklinksOnTarget") === "on") {
+      settings.showBacklinksOnTarget = true;
+    }
   }
   await prisma.field.update({
     where: { id: field.id },

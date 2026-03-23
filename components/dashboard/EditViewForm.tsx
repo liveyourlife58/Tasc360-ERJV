@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState, useCallback } from "react";
+import { useActionState, useState, useCallback, useMemo } from "react";
+import type { BoardLaneSource } from "@/components/dashboard/EntityBoard";
 
 type FilterRow = { field: string; op: string; value: string };
 type SortRow = { field: string; dir: "asc" | "desc" };
@@ -29,6 +30,30 @@ function parseSort(initial: unknown[]): SortRow[] {
   });
 }
 
+function parseBoardLaneSource(v: string | undefined | null): BoardLaneSource {
+  if (v === "all_options" || v === "custom") return v;
+  return "data";
+}
+
+function orderedLaneValuesForField(
+  fieldSlug: string,
+  selectMeta: { slug: string; options: string[] }[],
+  relationMeta: { slug: string; options: { id: string; label: string }[] }[]
+): string[] {
+  const rel = relationMeta.find((m) => m.slug === fieldSlug);
+  if (rel) return rel.options.map((o) => o.id);
+  const sel = selectMeta.find((m) => m.slug === fieldSlug);
+  if (sel) return sel.options;
+  return [];
+}
+
+/** Keep saved custom column order; drop ids no longer in the option catalog. */
+function filterPickedToAllowedOrder(picked: string[] | undefined, allowedOrdered: string[]): string[] {
+  if (!picked?.length) return [];
+  const allowed = new Set(allowedOrdered);
+  return picked.filter((v) => allowed.has(v));
+}
+
 export function EditViewForm({
   viewId,
   moduleSlug,
@@ -36,11 +61,16 @@ export function EditViewForm({
   initialColumns,
   initialViewType = "list",
   initialBoardColumnField,
+  initialBoardLaneSource,
+  initialBoardLaneValues,
   initialDateField,
   initialFilter = [],
   initialSort = [],
   fieldSlugs,
   selectFieldSlugs,
+  selectFieldsMeta = [],
+  relationFieldSlugs = [],
+  relationFieldsMeta = [],
   dateFieldSlugs,
   action,
   deleteAction,
@@ -51,11 +81,18 @@ export function EditViewForm({
   initialColumns: string[];
   initialViewType?: "list" | "board" | "calendar";
   initialBoardColumnField?: string | null;
+  initialBoardLaneSource?: string | null;
+  initialBoardLaneValues?: string[] | null;
   initialDateField?: string | null;
   initialFilter?: unknown[];
   initialSort?: unknown[];
   fieldSlugs: string[];
   selectFieldSlugs: string[];
+  /** Select fields with option lists (for board lane configuration). */
+  selectFieldsMeta?: { slug: string; name: string; options: string[] }[];
+  relationFieldSlugs?: string[];
+  /** Single relation fields with loaded target rows (ids + labels). */
+  relationFieldsMeta?: { slug: string; name: string; options: { id: string; label: string }[] }[];
   dateFieldSlugs: string[];
   action: (prev: unknown, formData: FormData) => Promise<unknown>;
   deleteAction: (prev: unknown, formData: FormData) => Promise<unknown>;
@@ -65,6 +102,40 @@ export function EditViewForm({
 
   const [filters, setFilters] = useState<FilterRow[]>(() => parseFilter(initialFilter));
   const [sorts, setSorts] = useState<SortRow[]>(() => parseSort(initialSort));
+
+  const [viewTypeSt, setViewTypeSt] = useState<"list" | "board" | "calendar">(
+    initialViewType === "board" || initialViewType === "calendar" ? initialViewType : "list"
+  );
+  const [boardFieldSt, setBoardFieldSt] = useState(initialBoardColumnField ?? "");
+  const [laneSourceSt, setLaneSourceSt] = useState<BoardLaneSource>(() =>
+    parseBoardLaneSource(initialBoardLaneSource ?? undefined)
+  );
+  const [customPicked, setCustomPicked] = useState<string[]>(() =>
+    filterPickedToAllowedOrder(
+      initialBoardLaneValues ?? undefined,
+      orderedLaneValuesForField(initialBoardColumnField ?? "", selectFieldsMeta, relationFieldsMeta)
+    )
+  );
+
+  const laneOptions = useMemo((): { value: string; label: string }[] => {
+    const rel = relationFieldsMeta.find((m) => m.slug === boardFieldSt);
+    if (rel) return rel.options.map((o) => ({ value: o.id, label: o.label }));
+    const sel = selectFieldsMeta.find((m) => m.slug === boardFieldSt);
+    if (sel) return sel.options.map((o) => ({ value: o, label: o }));
+    return [];
+  }, [selectFieldsMeta, relationFieldsMeta, boardFieldSt]);
+
+  const boardFieldIsRelation = relationFieldSlugs.includes(boardFieldSt);
+
+  const moveCustomPicked = useCallback((index: number, dir: -1 | 1) => {
+    setCustomPicked((prev) => {
+      const j = index + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[j]] = [next[j], next[index]];
+      return next;
+    });
+  }, []);
 
   const addFilter = useCallback(() => {
     setFilters((prev) => [...prev, { field: fieldSlugs[0] ?? "createdAt", op: "eq", value: "" }]);
@@ -124,24 +195,197 @@ export function EditViewForm({
         </div>
         <div className="form-group">
           <label htmlFor="viewType">View type</label>
-          <select id="viewType" name="viewType" defaultValue={initialViewType}>
+          <select
+            id="viewType"
+            name="viewType"
+            value={viewTypeSt}
+            onChange={(e) => setViewTypeSt(e.target.value as "list" | "board" | "calendar")}
+          >
             <option value="list">List</option>
             <option value="board">Board (Kanban)</option>
             <option value="calendar">Calendar</option>
           </select>
-          <span className="form-hint">Board groups by a select field; calendar shows entities by a date field.</span>
+          <span className="form-hint">Board groups by a select field or a single relation; calendar shows entities by a date field.</span>
         </div>
-        {selectFieldSlugs.length > 0 && (
+        {(selectFieldSlugs.length > 0 || relationFieldSlugs.length > 0) && (
           <div className="form-group">
             <label htmlFor="boardColumnField">Board column field (for Kanban)</label>
-            <select id="boardColumnField" name="boardColumnField" defaultValue={initialBoardColumnField ?? ""}>
+            <select
+              id="boardColumnField"
+              name="boardColumnField"
+              value={boardFieldSt}
+              onChange={(e) => {
+                const v = e.target.value;
+                setBoardFieldSt(v);
+                setLaneSourceSt("data");
+                setCustomPicked([]);
+              }}
+            >
               <option value="">— None —</option>
-              {selectFieldSlugs.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
+              {selectFieldSlugs.length > 0 && (
+                <optgroup label="Select fields">
+                  {selectFieldSlugs.map((s) => {
+                    const name = selectFieldsMeta.find((m) => m.slug === s)?.name ?? s;
+                    return (
+                      <option key={`sel:${s}`} value={s}>
+                        {name} ({s})
+                      </option>
+                    );
+                  })}
+                </optgroup>
+              )}
+              {relationFieldSlugs.length > 0 && (
+                <optgroup label="Relation fields (single)">
+                  {relationFieldSlugs.map((s) => {
+                    const name = relationFieldsMeta.find((m) => m.slug === s)?.name ?? s;
+                    return (
+                      <option key={`rel:${s}`} value={s}>
+                        {name} ({s})
+                      </option>
+                    );
+                  })}
+                </optgroup>
+              )}
             </select>
           </div>
         )}
+        {viewTypeSt === "board" && boardFieldSt && (
+          <div className="form-group">
+            <span className="form-label-text">Board columns</span>
+            <span className="form-hint" style={{ display: "block", marginBottom: "0.5rem" }}>
+              The unassigned lane (—) still appears only when at least one record has no value for this field.
+            </span>
+            {laneOptions.length === 0 ? (
+              <p style={{ margin: 0, fontSize: "0.875rem", color: "#64748b" }}>
+                {boardFieldIsRelation
+                  ? "No related records in the loaded list (up to 200 per target module). Columns follow values that appear on records."
+                  : "This field has no select options defined. Columns are derived from values that appear on records."}
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <label className="subscription-check-label" style={{ fontWeight: 400 }}>
+                  <input
+                    type="radio"
+                    name="boardLaneSourceUi"
+                    checked={laneSourceSt === "data"}
+                    onChange={() => setLaneSourceSt("data")}
+                  />
+                  Only columns that have at least one card (default)
+                </label>
+                <label className="subscription-check-label" style={{ fontWeight: 400 }}>
+                  <input
+                    type="radio"
+                    name="boardLaneSourceUi"
+                    checked={laneSourceSt === "all_options"}
+                    onChange={() => setLaneSourceSt("all_options")}
+                  />
+                  {boardFieldIsRelation
+                    ? "Always show every related record in the loaded list (up to 200; empty lanes stay visible)"
+                    : "Always show every select option (empty lanes stay visible)"}
+                </label>
+                <label className="subscription-check-label" style={{ fontWeight: 400 }}>
+                  <input
+                    type="radio"
+                    name="boardLaneSourceUi"
+                    checked={laneSourceSt === "custom"}
+                    onChange={() => {
+                      setLaneSourceSt("custom");
+                      setCustomPicked((prev) => {
+                        if (prev.length > 0) return prev;
+                        return laneOptions.map((o) => o.value);
+                      });
+                    }}
+                  />
+                  {boardFieldIsRelation
+                    ? "Choose which related records appear as columns — order is the list below (reorder with ↑ ↓)"
+                    : "Choose which options appear as columns — order is the list below (reorder with ↑ ↓)"}
+                </label>
+                {laneSourceSt === "custom" && (
+                  <div
+                    style={{
+                      marginLeft: "1.5rem",
+                      padding: "0.5rem 0",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.35rem",
+                    }}
+                  >
+                    <span className="form-hint" style={{ display: "block", marginBottom: "0.25rem" }}>
+                      Checked columns appear left to right in this order. New checks are added at the bottom; use ↑ ↓ to change order.
+                    </span>
+                    {customPicked.map((value, idx) => {
+                      const opt = laneOptions.find((o) => o.value === value);
+                      const label = opt?.label ?? value;
+                      return (
+                        <div
+                          key={value}
+                          style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}
+                        >
+                          <label className="subscription-check-label" style={{ fontWeight: 400, flex: "1", minWidth: 120 }}>
+                            <input
+                              type="checkbox"
+                              checked
+                              onChange={() => {
+                                setCustomPicked((prev) => prev.filter((x) => x !== value));
+                              }}
+                            />
+                            {label}
+                          </label>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={idx === 0}
+                            onClick={() => moveCustomPicked(idx, -1)}
+                            aria-label="Move column up"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={idx === customPicked.length - 1}
+                            onClick={() => moveCustomPicked(idx, 1)}
+                            aria-label="Move column down"
+                          >
+                            ↓
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {laneOptions
+                      .filter((o) => !customPicked.includes(o.value))
+                      .map((opt) => (
+                        <label key={opt.value} className="subscription-check-label" style={{ fontWeight: 400 }}>
+                          <input
+                            type="checkbox"
+                            checked={false}
+                            onChange={() => {
+                              setCustomPicked((prev) => [...prev, opt.value]);
+                            }}
+                          />
+                          {opt.label}
+                        </label>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        <input
+          type="hidden"
+          name="boardLaneSource"
+          value={viewTypeSt === "board" && boardFieldSt ? laneSourceSt : "data"}
+        />
+        <input
+          type="hidden"
+          name="boardLaneValuesJson"
+          value={
+            viewTypeSt === "board" && boardFieldSt && laneSourceSt === "custom"
+              ? JSON.stringify(customPicked)
+              : ""
+          }
+        />
         {dateFieldSlugs.length > 0 && (
           <div className="form-group">
             <label htmlFor="dateField">Calendar date field</label>

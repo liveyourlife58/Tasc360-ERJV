@@ -9,6 +9,8 @@ export const APP_CONFIG = {
   entityPageSize: 50,
   /** Max entities fetched per module for list (before pagination slice). */
   entityFetchLimit: 500,
+  /** Max field columns on the module entity list table (view columns or all fields, in order). Export CSV allows more via its own cap. */
+  entityListMaxColumns: 50,
   /** Subscription grace period (days) when payment is past_due. Overridden by env SUBSCRIPTION_GRACE_DAYS. */
   subscriptionGraceDays: 7,
   /** API rate limit per tenant per minute. Overridden by env API_RATE_LIMIT_PER_MINUTE. */

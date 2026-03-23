@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { EntityList } from "@/components/dashboard/EntityList";
-import { EntityBoard } from "@/components/dashboard/EntityBoard";
+import { EntityBoard, type BoardLaneSource } from "@/components/dashboard/EntityBoard";
 import { EntityCalendar } from "@/components/dashboard/EntityCalendar";
 import { ModuleViewSelectorRow } from "@/components/dashboard/ModuleViewSelectorRow";
 import { RestoreEntityButton } from "@/components/dashboard/RestoreEntityButton";
@@ -12,18 +12,24 @@ import { SuccessBanner } from "@/components/dashboard/SuccessBanner";
 import { updateView, deleteViewFormAction, updateEntitySingleField, setModuleDefaultView } from "@/app/dashboard/actions";
 import { APP_CONFIG } from "@/lib/app-config";
 import { isFeatureEnabled } from "@/lib/feature-flags";
-import { applyViewToEntities, getColumnOrder } from "@/lib/view-utils";
+import { applyViewToEntities, filterEntitiesByKeyword, getColumnOrder } from "@/lib/view-utils";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
+import { isPlatformAdmin } from "@/lib/developer-setup";
+import { buildRelationLabelMaps, getRelationOptions } from "@/lib/relation-options";
+import { ModuleListSearchBar } from "@/components/dashboard/ModuleListSearchBar";
+import { getModuleEntityListCreatedAtOrder } from "@/lib/module-settings";
+import { getInverseBacklinksByTargetEntityIds } from "@/lib/inverse-relation-backlinks";
 
 export default async function ModuleEntityListPage({
   params,
   searchParams,
 }: {
   params: Promise<{ moduleSlug: string }>;
-  searchParams: Promise<{ view?: string; deleted?: string; success?: string; page?: string }>;
+  searchParams: Promise<{ view?: string; deleted?: string; success?: string; page?: string; q?: string }>;
 }) {
   const { moduleSlug } = await params;
-  const { view: viewId, deleted: showDeleted, success: successKey, page: pageParam } = await searchParams;
+  const { view: viewId, deleted: showDeleted, success: successKey, page: pageParam, q: qParam } = await searchParams;
+  const searchQuery = typeof qParam === "string" ? qParam.trim() : "";
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
   const PAGE_SIZE = APP_CONFIG.entityPageSize;
   const isDeletedView = showDeleted === "1";
@@ -34,11 +40,18 @@ export default async function ModuleEntityListPage({
   const canRead = await hasPermission(userId, PERMISSIONS.entitiesRead);
   if (!canRead) notFound();
 
+  const userEmail = (
+    await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
+  )?.email;
+  const userIsPlatformAdmin = isPlatformAdmin(userEmail ?? null);
+
   const module_ = await prisma.module.findFirst({
     where: { tenantId, slug: moduleSlug, isActive: true },
     include: { fields: { orderBy: { sortOrder: "asc" } } },
   });
   if (!module_) notFound();
+
+  const entityCreatedAtOrder = getModuleEntityListCreatedAtOrder(module_);
 
   const [tenant, views, entities] = await Promise.all([
     prisma.tenant.findUnique({
@@ -55,7 +68,7 @@ export default async function ModuleEntityListPage({
         moduleId: module_.id,
         ...(isDeletedView ? { deletedAt: { not: null } } : { deletedAt: null }),
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: entityCreatedAtOrder },
       take: APP_CONFIG.entityFetchLimit,
       include: {
         orderLines: { select: { quantity: true } },
@@ -65,7 +78,10 @@ export default async function ModuleEntityListPage({
 
   const defaultViewId = (module_.settings as Record<string, unknown> | null)?.defaultViewId as string | undefined;
   if (!viewId && !isDeletedView && defaultViewId && views.some((v) => v.id === defaultViewId)) {
-    redirect(`/dashboard/m/${moduleSlug}?view=${defaultViewId}`);
+    const sp = new URLSearchParams();
+    sp.set("view", defaultViewId);
+    if (searchQuery) sp.set("q", searchQuery);
+    redirect(`/dashboard/m/${moduleSlug}?${sp.toString()}`);
   }
 
   const selectedView = viewId
@@ -87,38 +103,122 @@ export default async function ModuleEntityListPage({
         }
       : null;
 
-  const filteredEntities = applyViewToEntities(
-    entities as { id: string; data: unknown }[],
+  const afterView = applyViewToEntities(
+    entities as { id: string; data: unknown; createdAt?: Date }[],
     viewConfig
   );
+  const filteredEntities = filterEntitiesByKeyword(afterView, searchQuery);
   const totalCount = filteredEntities.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const start = (currentPage - 1) * PAGE_SIZE;
   const paginatedEntities = filteredEntities.slice(start, start + PAGE_SIZE);
 
+  const viewType =
+    viewRow?.viewType === "board" || viewRow?.viewType === "calendar" ? viewRow.viewType : "list";
+
+  const [relationLabels, relationOptionsMap, inverseBacklinksByEntityId] = await Promise.all([
+    buildRelationLabelMaps(tenantId, module_.fields, paginatedEntities),
+    getRelationOptions(tenantId, module_.fields),
+    !isDeletedView && viewType === "list"
+      ? getInverseBacklinksByTargetEntityIds(
+          tenantId,
+          moduleSlug,
+          paginatedEntities.map((e) => e.id)
+        )
+      : Promise.resolve({} as Awaited<ReturnType<typeof getInverseBacklinksByTargetEntityIds>>),
+  ]);
+
   const fieldSlugs = module_.fields.map((f) => f.slug);
-  const columnSlugs = getColumnOrder(viewConfig, fieldSlugs, 8);
+  const columnSlugs = getColumnOrder(viewConfig, fieldSlugs, APP_CONFIG.entityListMaxColumns);
   const selectFieldSlugs = module_.fields.filter((f) => f.fieldType === "select").map((f) => f.slug);
+  const relationFieldSlugs = module_.fields.filter((f) => f.fieldType === "relation").map((f) => f.slug);
+  const relationFieldsMeta = relationFieldSlugs.map((slug) => {
+    const f = module_.fields.find((x) => x.slug === slug)!;
+    return {
+      slug,
+      name: f.name,
+      options: (relationOptionsMap[slug] ?? []).map((o) => ({ id: o.id, label: o.label })),
+    };
+  });
+  const selectFieldsMeta = module_.fields
+    .filter((f) => f.fieldType === "select")
+    .map((f) => {
+      const st = (f.settings as Record<string, unknown>) ?? {};
+      const opts = Array.isArray(st.options)
+        ? (st.options as unknown[]).filter((x): x is string => typeof x === "string")
+        : [];
+      return { slug: f.slug, name: f.name, options: opts };
+    });
   const dateFieldSlugs = module_.fields.filter((f) => f.fieldType === "date").map((f) => f.slug);
-  const viewType = viewRow?.viewType === "board" || viewRow?.viewType === "calendar" ? viewRow.viewType : "list";
-  const viewSettings = (viewRow?.settings as { boardColumnField?: string; dateField?: string }) ?? {};
-  const boardColumnField = viewType === "board" ? (viewSettings.boardColumnField ?? selectFieldSlugs[0] ?? null) : null;
+  const viewSettings = (viewRow?.settings as {
+    boardColumnField?: string;
+    dateField?: string;
+    boardLaneSource?: string;
+    boardLaneValues?: unknown;
+  }) ?? {};
+  let boardColumnField =
+    viewType === "board"
+      ? (viewSettings.boardColumnField ?? selectFieldSlugs[0] ?? relationFieldSlugs[0] ?? null)
+      : null;
+  if (viewType === "board" && boardColumnField) {
+    const bf = module_.fields.find((f) => f.slug === boardColumnField);
+    const ok = bf && (bf.fieldType === "select" || bf.fieldType === "relation");
+    if (!ok) boardColumnField = selectFieldSlugs[0] ?? relationFieldSlugs[0] ?? null;
+  }
+  const boardFieldDef =
+    viewType === "board" && boardColumnField
+      ? module_.fields.find((f) => f.slug === boardColumnField)
+      : null;
+  const boardOrderedDefinedValues: string[] =
+    boardFieldDef?.fieldType === "relation"
+      ? (relationOptionsMap[boardColumnField!] ?? []).map((o) => o.id)
+      : boardFieldDef?.fieldType === "select"
+        ? (() => {
+            const st = (boardFieldDef.settings as Record<string, unknown>) ?? {};
+            return Array.isArray(st.options)
+              ? (st.options as unknown[]).filter((x): x is string => typeof x === "string")
+              : [];
+          })()
+        : [];
+  let boardColumnLabels: Record<string, string> | undefined;
+  if (boardFieldDef?.fieldType === "relation" && boardColumnField) {
+    boardColumnLabels = {};
+    for (const o of relationOptionsMap[boardColumnField] ?? []) {
+      boardColumnLabels[o.id] = o.label;
+    }
+    const extra = relationLabels[boardColumnField];
+    if (extra) {
+      for (const [id, label] of Object.entries(extra)) {
+        if (!boardColumnLabels[id]) boardColumnLabels[id] = label;
+      }
+    }
+  }
+  const boardLaneSource: BoardLaneSource =
+    viewSettings.boardLaneSource === "all_options" || viewSettings.boardLaneSource === "custom"
+      ? viewSettings.boardLaneSource
+      : "data";
+  const boardLaneValues =
+    boardLaneSource === "custom" && Array.isArray(viewSettings.boardLaneValues)
+      ? (viewSettings.boardLaneValues as unknown[]).filter((x): x is string => typeof x === "string")
+      : undefined;
   const dateField = viewType === "calendar" ? (viewSettings.dateField ?? dateFieldSlugs[0] ?? null) : null;
 
   function buildPageUrl(nextPage: number) {
     const params = new URLSearchParams();
     if (viewId) params.set("view", viewId);
     if (showDeleted === "1") params.set("deleted", "1");
+    if (searchQuery) params.set("q", searchQuery);
     if (nextPage > 1) params.set("page", String(nextPage));
     const q = params.toString();
     return q ? `/dashboard/m/${moduleSlug}?${q}` : `/dashboard/m/${moduleSlug}`;
   }
+  const exportParams = new URLSearchParams();
+  if (viewId) exportParams.set("view", viewId);
+  if (showDeleted === "1") exportParams.set("deleted", "1");
+  if (searchQuery) exportParams.set("q", searchQuery);
   const exportCsvUrl =
-    `/dashboard/m/${moduleSlug}/export` +
-    (viewId || showDeleted === "1"
-      ? "?" + new URLSearchParams({ ...(viewId && { view: viewId }), ...(showDeleted === "1" && { deleted: "1" }) }).toString()
-      : "");
+    `/dashboard/m/${moduleSlug}/export` + (exportParams.toString() ? `?${exportParams.toString()}` : "");
 
   const entityListProps = {
     moduleSlug,
@@ -127,6 +227,9 @@ export default async function ModuleEntityListPage({
     entities: paginatedEntities as { id: string; data: Record<string, unknown> | unknown; metadata?: unknown; orderLines?: { quantity: number }[] }[],
     columnSlugs: columnSlugs.length ? columnSlugs : undefined,
     allowRefund: isFeatureEnabled(tenant?.settings ?? null, "refunds"),
+    relationLabels,
+    inverseBacklinksByEntityId:
+      !isDeletedView && viewType === "list" ? inverseBacklinksByEntityId : undefined,
   };
 
   return (
@@ -170,7 +273,12 @@ export default async function ModuleEntityListPage({
           name: v.name,
           columns: Array.isArray(v.columns) ? (v.columns as string[]) : [],
           viewType: v.viewType ?? "list",
-          settings: v.settings as { boardColumnField?: string; dateField?: string } | null,
+          settings: v.settings as {
+            boardColumnField?: string;
+            dateField?: string;
+            boardLaneSource?: string;
+            boardLaneValues?: unknown;
+          } | null,
           filter: (Array.isArray(v.filter) ? v.filter : []) as unknown[],
           sort: (Array.isArray(v.sort) ? v.sort : []) as unknown[],
         }))}
@@ -179,6 +287,9 @@ export default async function ModuleEntityListPage({
         setDefaultViewAction={setModuleDefaultView}
         fieldSlugs={fieldSlugs}
         selectFieldSlugs={selectFieldSlugs}
+        selectFieldsMeta={selectFieldsMeta}
+        relationFieldSlugs={relationFieldSlugs}
+        relationFieldsMeta={relationFieldsMeta}
         dateFieldSlugs={dateFieldSlugs}
         updateViewAction={updateView}
         deleteViewAction={deleteViewFormAction}
@@ -190,6 +301,12 @@ export default async function ModuleEntityListPage({
           fieldSlugs,
         }}
       />
+        <ModuleListSearchBar
+          moduleSlug={moduleSlug}
+          initialQuery={searchQuery}
+          viewId={viewId ?? null}
+          showDeleted={isDeletedView}
+        />
       </div>
       {viewType === "board" && boardColumnField && !isDeletedView ? (
         <EntityBoard
@@ -197,6 +314,10 @@ export default async function ModuleEntityListPage({
           entities={entityListProps.entities}
           fields={entityListProps.fields}
           boardColumnField={boardColumnField}
+          boardLaneSource={boardLaneSource}
+          boardLaneValues={boardLaneValues}
+          boardOrderedDefinedValues={boardOrderedDefinedValues}
+          boardColumnLabels={boardColumnLabels}
           updateColumnAction={updateEntitySingleField}
         />
       ) : viewType === "calendar" && dateField && !isDeletedView ? (
@@ -230,7 +351,11 @@ export default async function ModuleEntityListPage({
                       <Link href={`/dashboard/m/${moduleSlug}/${entity.id}`}>{title}</Link>
                     </td>
                     <td>
-                      <RestoreEntityButton entityId={entity.id} moduleSlug={moduleSlug} />
+                      <RestoreEntityButton
+                        entityId={entity.id}
+                        moduleSlug={moduleSlug}
+                        platformAdmin={userIsPlatformAdmin}
+                      />
                     </td>
                   </tr>
                 );
@@ -245,6 +370,7 @@ export default async function ModuleEntityListPage({
         <nav className="pagination-bar" aria-label="Pagination">
           <p className="pagination-info">
             Showing {start + 1}–{Math.min(start + PAGE_SIZE, totalCount)} of {totalCount}
+            {searchQuery ? " matching search" : ""}
           </p>
           <div className="pagination-links">
             {currentPage > 1 ? (

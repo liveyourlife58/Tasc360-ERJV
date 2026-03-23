@@ -11,7 +11,12 @@ type ViewItem = {
   name: string;
   columns: string[];
   viewType?: string;
-  settings?: { boardColumnField?: string; dateField?: string } | null;
+  settings?: {
+    boardColumnField?: string;
+    dateField?: string;
+    boardLaneSource?: string;
+    boardLaneValues?: unknown;
+  } | null;
   filter?: unknown[];
   sort?: unknown[];
 };
@@ -60,6 +65,9 @@ export function ViewSelector({
   editViewsOpen: controlledEditViewsOpen,
   onEditViewsOpenChange,
   selectFieldSlugs,
+  selectFieldsMeta,
+  relationFieldSlugs,
+  relationFieldsMeta,
   dateFieldSlugs,
   defaultViewId,
   setDefaultViewAction,
@@ -73,6 +81,9 @@ export function ViewSelector({
   editViewsOpen?: boolean;
   onEditViewsOpenChange?: (open: boolean) => void;
   selectFieldSlugs?: string[];
+  selectFieldsMeta?: { slug: string; name: string; options: string[] }[];
+  relationFieldSlugs?: string[];
+  relationFieldsMeta?: { slug: string; name: string; options: { id: string; label: string }[] }[];
   dateFieldSlugs?: string[];
   defaultViewId?: string | null;
   setDefaultViewAction?: (moduleSlug: string, viewId: string | null) => Promise<{ error?: string }>;
@@ -165,12 +176,21 @@ export function ViewSelector({
                       initialName={editingView.name}
                       initialColumns={editingView.columns}
                       initialViewType={(editingView.viewType === "board" || editingView.viewType === "calendar" ? editingView.viewType : "list") as "list" | "board" | "calendar"}
-                      initialBoardColumnField={(editingView.settings as { boardColumnField?: string })?.boardColumnField ?? null}
-                      initialDateField={(editingView.settings as { dateField?: string })?.dateField ?? null}
+                      initialBoardColumnField={editingView.settings?.boardColumnField ?? null}
+                      initialBoardLaneSource={editingView.settings?.boardLaneSource ?? null}
+                      initialBoardLaneValues={
+                        Array.isArray(editingView.settings?.boardLaneValues)
+                          ? (editingView.settings?.boardLaneValues as string[]).filter((x) => typeof x === "string")
+                          : null
+                      }
+                      initialDateField={editingView.settings?.dateField ?? null}
                       initialFilter={Array.isArray(editingView.filter) ? editingView.filter : []}
                       initialSort={Array.isArray(editingView.sort) ? editingView.sort : []}
                       fieldSlugs={fieldSlugs}
                       selectFieldSlugs={selectFieldSlugs ?? []}
+                      selectFieldsMeta={selectFieldsMeta ?? []}
+                      relationFieldSlugs={relationFieldSlugs ?? []}
+                      relationFieldsMeta={relationFieldsMeta ?? []}
                       dateFieldSlugs={dateFieldSlugs ?? []}
                       action={updateViewAction.bind(null, editingView.id, moduleSlug)}
                       deleteAction={deleteViewAction.bind(null, editingView.id, moduleSlug)}

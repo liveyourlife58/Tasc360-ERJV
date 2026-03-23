@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useActionState } from "react";
 import { removeFieldFromModule, reorderFieldInModule } from "@/app/dashboard/actions";
 import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
@@ -43,7 +43,7 @@ export function FieldListRow({
   updateFormAction,
   extraFormFields,
   fieldRecordCount = 0,
-  otherModuleSlugs = [],
+  otherModules = [],
 }: {
   moduleSlug: string;
   field: Field;
@@ -58,7 +58,7 @@ export function FieldListRow({
   extraFormFields?: Record<string, string>;
   /** When set (e.g. platform admin), Remove is disabled if > 0 and tooltip explains. */
   fieldRecordCount?: number;
-  otherModuleSlugs?: { slug: string; name: string }[];
+  otherModules?: { slug: string; name: string; fields: { slug: string; name: string }[] }[];
 }) {
   const [editing, setEditing] = useState(false);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
@@ -86,12 +86,22 @@ export function FieldListRow({
   const settings = (field.settings as Record<string, unknown> | null) ?? {};
   const optionsStr = Array.isArray(settings.options) ? (settings.options as string[]).join(", ") : "";
   const targetSlug = (settings.targetModuleSlug as string) ?? "";
+  const displayFieldSlugSetting = (settings.displayFieldSlug as string) ?? "";
+  const showBacklinksOnTarget = settings.showBacklinksOnTarget === true;
+  const [relationTarget, setRelationTarget] = useState(targetSlug);
+  useEffect(() => {
+    if (editing) setRelationTarget(targetSlug);
+  }, [editing, targetSlug]);
+  const selectedModuleFields =
+    otherModules.find((m) => m.slug === relationTarget)?.fields ?? [];
 
   const settingsStr = (() => {
     if (!settings || typeof settings !== "object") return "—";
     const parts: string[] = [];
     if (Array.isArray(settings.options)) parts.push(`options: ${(settings.options as string[]).join(", ")}`);
     if (settings.targetModuleSlug) parts.push(`→ ${settings.targetModuleSlug}`);
+    if (settings.displayFieldSlug) parts.push(`show: ${settings.displayFieldSlug}`);
+    if (settings.showBacklinksOnTarget === true) parts.push("backlinks on target");
     return parts.length ? parts.join("; ") : "—";
   })();
 
@@ -136,17 +146,61 @@ export function FieldListRow({
               <label>Options (for Select, comma-separated)</label>
               <input name="options" type="text" defaultValue={optionsStr} className="form-control" placeholder="Draft, Active, Done" />
             </div>
-            {otherModuleSlugs.length > 0 && (
+            {otherModules.length > 0 && (
               <div className="form-group">
                 <label>Target module (for Relation)</label>
-                <select name="targetModuleSlug" className="form-control" defaultValue={targetSlug}>
+                <select
+                  name="targetModuleSlug"
+                  className="form-control"
+                  value={relationTarget}
+                  onChange={(e) => setRelationTarget(e.target.value)}
+                >
                   <option value="">— None —</option>
-                  {otherModuleSlugs.map((m) => (
+                  {otherModules.map((m) => (
                     <option key={m.slug} value={m.slug}>{m.name}</option>
                   ))}
                 </select>
               </div>
             )}
+            {otherModules.length > 0 &&
+              (field.fieldType === "relation" || field.fieldType === "relation-multi") &&
+              relationTarget &&
+              selectedModuleFields.length > 0 && (
+                <div className="form-group">
+                  <label>Show in lists / pickers</label>
+                  <select
+                    key={relationTarget}
+                    name="displayFieldSlug"
+                    className="form-control"
+                    defaultValue={relationTarget === targetSlug ? displayFieldSlugSetting : ""}
+                  >
+                    <option value="">Default (name, or first field)</option>
+                    {selectedModuleFields.map((f) => (
+                      <option key={f.slug} value={f.slug}>
+                        {f.name} ({f.slug})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            {otherModules.length > 0 &&
+              (field.fieldType === "relation" || field.fieldType === "relation-multi") &&
+              relationTarget && (
+                <div className="form-group">
+                  <label className="subscription-check-label">
+                    <input
+                      type="checkbox"
+                      name="showBacklinksOnTarget"
+                      value="1"
+                      defaultChecked={showBacklinksOnTarget}
+                    />
+                    On the target record’s page, list records from this module that link here (expanded)
+                  </label>
+                  <p style={{ fontSize: "0.8125rem", color: "#64748b", marginTop: "0.35rem", marginBottom: 0 }}>
+                    Uses the relationship index; re-save linked records if backlinks look out of date.
+                  </p>
+                </div>
+              )}
             {updateError && <p className="view-error" role="alert">{updateError}</p>}
             <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
               <button type="submit" className="btn btn-primary">Save</button>

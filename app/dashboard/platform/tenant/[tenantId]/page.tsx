@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { getDashboardSettings } from "@/lib/dashboard-settings";
+import { getDashboardSettings, orderModulesBySettings } from "@/lib/dashboard-settings";
 import { getFeatureFlags } from "@/lib/feature-flags";
 import { getDashboardFeatures } from "@/lib/dashboard-features";
 import { getModulePaymentType } from "@/lib/module-settings";
@@ -106,6 +106,12 @@ export default async function PlatformTenantDetailPage({
     modulePaymentTypes[m.slug] = getModulePaymentType(m);
   }
 
+  const hubOrderedModules = orderModulesBySettings(modules, dashboardSettings.sidebarOrder).map((m) => ({
+    id: m.id,
+    name: m.name,
+    slug: m.slug,
+  }));
+
   const viewsByModule: Record<string, { id: string; name: string }[]> = {};
   for (const m of modules) {
     const views = await prisma.view.findMany({
@@ -198,6 +204,7 @@ export default async function PlatformTenantDetailPage({
       <p className="settings-intro">Change this tenant&apos;s settings below. All sections are editable.</p>
       <SettingsSectionCards
         tenantId={tenantId}
+        hubOrderedModules={hubOrderedModules}
         updateAction={updateTenantSettingsAsPlatformAdmin}
         extraFormFields={{
           targetTenantId: tenantId,

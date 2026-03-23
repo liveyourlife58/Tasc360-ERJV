@@ -173,3 +173,40 @@ export function getColumnOrder(
   }
   return allFieldSlugs.slice(0, maxColumns);
 }
+
+function valueMatchesKeyword(val: unknown, q: string): boolean {
+  if (val == null) return false;
+  if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
+    return String(val).toLowerCase().includes(q);
+  }
+  if (Array.isArray(val)) {
+    return val.some((x) => valueMatchesKeyword(x, q));
+  }
+  if (typeof val === "object") {
+    if (val instanceof Date) return val.toISOString().toLowerCase().includes(q);
+    try {
+      return JSON.stringify(val).toLowerCase().includes(q);
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+/** Case-insensitive match on id, createdAt, and all values in entity.data (after view filters). */
+export function filterEntitiesByKeyword<T extends { id: string; data: unknown; createdAt?: Date }>(
+  entities: T[],
+  keyword: string
+): T[] {
+  const q = keyword.trim().toLowerCase();
+  if (!q) return entities;
+  return entities.filter((e) => {
+    if (e.id.toLowerCase().includes(q)) return true;
+    if (e.createdAt instanceof Date && e.createdAt.toISOString().toLowerCase().includes(q)) return true;
+    const data = (e.data as Record<string, unknown>) ?? {};
+    for (const val of Object.values(data)) {
+      if (valueMatchesKeyword(val, q)) return true;
+    }
+    return false;
+  });
+}

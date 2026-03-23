@@ -9,6 +9,7 @@ import { ERROR_CODES } from "@/lib/errors";
 import { validateEntityData } from "@/lib/api-entity-validation";
 import { createRequestLogger } from "@/lib/logger";
 import { logApiEntityEvent, logAuditEvent } from "@/lib/audit";
+import { getModuleEntityListCreatedAtOrder } from "@/lib/module-settings";
 
 export async function GET(
   request: Request,
@@ -24,15 +25,16 @@ export async function GET(
   if (!rate.ok) return withRateLimitHeaders(apiError(ERROR_CODES.RATE_LIMITED), rate);
   const module_ = await prisma.module.findFirst({
     where: { tenantId, slug: moduleSlug, isActive: true },
-    select: { id: true },
+    select: { id: true, settings: true },
   });
   if (!module_) return withRateLimitHeaders(apiError(ERROR_CODES.NOT_FOUND, 404, "Module not found."), rate);
+  const listOrder = getModuleEntityListCreatedAtOrder(module_);
   const { searchParams } = new URL(request.url);
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "50", 10) || 50));
   const cursor = searchParams.get("cursor") ?? searchParams.get("after") ?? undefined;
   const entities = await prisma.entity.findMany({
     where: { tenantId, moduleId: module_.id, deletedAt: null },
-    orderBy: { createdAt: "desc" },
+    orderBy: { createdAt: listOrder },
     take: limit + 1,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     select: { id: true, data: true, createdAt: true },

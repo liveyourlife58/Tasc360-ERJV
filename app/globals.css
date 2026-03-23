@@ -225,6 +225,13 @@ a[class*="bg-red-600"] {
   margin-top: 0.5rem;
 }
 
+.entity-list-table-scroll-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
 .entity-table {
   width: 100%;
   border-collapse: collapse;
@@ -252,6 +259,25 @@ a[class*="bg-red-600"] {
 }
 
 .entity-table tr:hover td:first-child {
+  background: #f9fafb;
+}
+
+/* Sticky actions column: keeps Edit visible while scrolling wide tables */
+.entity-table th:last-child,
+.entity-table td:last-child {
+  position: sticky;
+  right: 0;
+  background: #fff;
+  z-index: 2;
+  box-shadow: -2px 0 0 0 #e5e7eb;
+}
+
+.entity-table th:last-child {
+  background: #f9fafb;
+  z-index: 3;
+}
+
+.entity-table tr:hover td:last-child {
   background: #f9fafb;
 }
 
@@ -548,6 +574,36 @@ a[class*="bg-red-600"] {
 
 .view-selector {
   margin-bottom: 0;
+}
+
+.module-list-search-bar {
+  margin-bottom: 1rem;
+}
+
+.module-list-search-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.module-list-search-input {
+  flex: 1;
+  min-width: 12rem;
+  max-width: 28rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9375rem;
+}
+
+.module-list-search-submit,
+.module-list-search-clear {
+  flex-shrink: 0;
+}
+
+.module-list-search-bar--pending .module-list-search-input {
+  opacity: 0.72;
 }
 
 .ai-create-module-form {
@@ -2638,6 +2694,65 @@ a[class*="bg-red-600"] {
 
 .module-list-link:hover {
   text-decoration: underline;
+}
+
+/* Dashboard home: module shortcuts as square tiles */
+.dashboard-module-tiles {
+  list-style: none;
+  padding: 0;
+  margin: 1.25rem 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 1rem;
+  max-width: 48rem;
+}
+
+.dashboard-module-tile {
+  margin: 0;
+  aspect-ratio: 1;
+  min-width: 0;
+}
+
+.dashboard-module-tile-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0.75rem;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  line-height: 1.35;
+  color: var(--dashboard-primary, #0d9488);
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+.dashboard-module-tile-link:hover {
+  border-color: var(--dashboard-primary, #0d9488);
+  box-shadow: 0 4px 14px rgb(13 148 136 / 0.14);
+  background: #f0fdfa;
+  text-decoration: none;
+}
+
+.dashboard-module-tile-label {
+  min-width: 0;
+  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.settings-modal-body .dashboard-module-tiles {
+  max-width: none;
 }
 
 /* Board view (Kanban) */

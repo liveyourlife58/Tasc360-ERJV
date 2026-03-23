@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useTransition } from "react";
+import { useMemo, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 type Field = {
@@ -17,39 +17,145 @@ type Entity = {
   data: Record<string, unknown> | unknown;
 };
 
+export type BoardLaneSource = "data" | "all_options" | "custom";
+
 const emptyLabel = "—";
+/** Stable internal key for the unassigned lane (avoids collisions with option text "—"). */
+const UNASSIGNED_KEY = "__tasc360_board_unassigned__";
+
+type Lane = { reactKey: string; title: string; storageValue: string };
+
+function distinctValuesInOrder(entities: Entity[], boardColumnField: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const e of entities) {
+    const v = (e.data as Record<string, unknown>)?.[boardColumnField];
+    if (v == null || v === "") continue;
+    const s = String(v);
+    if (!seen.has(s)) {
+      seen.add(s);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+function buildLanes(
+  entities: Entity[],
+  boardColumnField: string,
+  laneSource: BoardLaneSource,
+  customLanes: string[] | undefined,
+  orderedDefinedValues: string[],
+  columnLabels?: Record<string, string>
+): Lane[] {
+  let hasUnassigned = false;
+  const valueSet = new Set<string>();
+  for (const e of entities) {
+    const v = (e.data as Record<string, unknown>)?.[boardColumnField];
+    if (v == null || v === "") hasUnassigned = true;
+    else valueSet.add(String(v));
+  }
+
+  const fromData = distinctValuesInOrder(entities, boardColumnField);
+
+  let valueLanes: string[] = [];
+  if (laneSource === "all_options" && orderedDefinedValues.length > 0) {
+    valueLanes = [...orderedDefinedValues];
+    for (const v of valueSet) {
+      if (!valueLanes.includes(v)) valueLanes.push(v);
+    }
+  } else if (laneSource === "custom" && customLanes && customLanes.length > 0) {
+    valueLanes = [...customLanes];
+    for (const v of valueSet) {
+      if (!valueLanes.includes(v)) valueLanes.push(v);
+    }
+  } else if (orderedDefinedValues.length > 0) {
+    /** "Data" mode: column order follows catalog order (select options / relation list), then any values not in catalog. */
+    const seenInData = new Set(fromData);
+    valueLanes = orderedDefinedValues.filter((v) => seenInData.has(v));
+    for (const v of fromData) {
+      if (!valueLanes.includes(v)) valueLanes.push(v);
+    }
+  } else {
+    valueLanes = fromData;
+  }
+
+  const lanes: Lane[] = valueLanes.map((v) => ({
+    reactKey: `opt:${v}`,
+    title: columnLabels?.[v] ?? v,
+    storageValue: v,
+  }));
+  if (hasUnassigned) {
+    lanes.unshift({
+      reactKey: UNASSIGNED_KEY,
+      title: emptyLabel,
+      storageValue: "",
+    });
+  }
+  return lanes;
+}
 
 export function EntityBoard({
   moduleSlug,
   entities,
   fields,
   boardColumnField,
+  boardLaneSource = "data",
+  boardLaneValues,
+  boardOrderedDefinedValues,
+  boardColumnLabels,
   updateColumnAction,
 }: {
   moduleSlug: string;
   entities: Entity[];
   fields: Field[];
   boardColumnField: string;
+  boardLaneSource?: BoardLaneSource;
+  boardLaneValues?: string[];
+  /** Select option strings or related entity ids (in order), for “all” / “custom” lane modes. */
+  boardOrderedDefinedValues: string[];
+  /** When grouping by relation, map related id → display label (column headers). */
+  boardColumnLabels?: Record<string, string>;
   updateColumnAction: (entityId: string, moduleSlug: string, fieldSlug: string, value: string) => Promise<{ error?: string }>;
 }) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const titleField = fields[0]?.slug ?? "name";
-  const columnValues = new Set<string>();
-  entities.forEach((e) => {
-    const v = (e.data as Record<string, unknown>)?.[boardColumnField];
-    if (v != null && v !== "") columnValues.add(String(v));
-  });
-  const columns = Array.from(columnValues);
-  const allColumns = [emptyLabel, ...columns];
 
-  const byColumn = new Map<string, Entity[]>();
-  allColumns.forEach((c) => byColumn.set(c, []));
-  entities.forEach((e) => {
-    const v = (e.data as Record<string, unknown>)?.[boardColumnField];
-    const key = v != null && v !== "" ? String(v) : emptyLabel;
-    byColumn.get(key)?.push(e);
-  });
+  const lanes = useMemo(
+    () =>
+      buildLanes(
+        entities,
+        boardColumnField,
+        boardLaneSource,
+        boardLaneValues,
+        boardOrderedDefinedValues,
+        boardColumnLabels
+      ),
+    [
+      entities,
+      boardColumnField,
+      boardLaneSource,
+      boardLaneValues,
+      boardOrderedDefinedValues,
+      boardColumnLabels,
+    ]
+  );
+
+  const byLane = useMemo(() => {
+    const m = new Map<string, Entity[]>();
+    for (const l of lanes) {
+      m.set(l.reactKey, []);
+    }
+    for (const e of entities) {
+      const v = (e.data as Record<string, unknown>)?.[boardColumnField];
+      const isEmpty = v == null || v === "";
+      const key = isEmpty ? UNASSIGNED_KEY : `opt:${String(v)}`;
+      const bucket = m.get(key);
+      if (bucket) bucket.push(e);
+    }
+    return m;
+  }, [lanes, entities, boardColumnField]);
 
   const handleDragStart = (e: React.DragEvent, entityId: string) => {
     e.dataTransfer.setData("application/entity-id", entityId);
@@ -61,13 +167,12 @@ export function EntityBoard({
     e.dataTransfer.dropEffect = "move";
   };
 
-  const handleDrop = (e: React.DragEvent, columnValue: string) => {
+  const handleDrop = (e: React.DragEvent, storageValue: string) => {
     e.preventDefault();
     const entityId = e.dataTransfer.getData("application/entity-id");
     if (!entityId) return;
-    const value = columnValue === emptyLabel ? "" : columnValue;
     startTransition(() => {
-      updateColumnAction(entityId, moduleSlug, boardColumnField, value).then((res) => {
+      updateColumnAction(entityId, moduleSlug, boardColumnField, storageValue).then((res) => {
         if (res?.error) alert(res.error);
         else router.refresh();
       });
@@ -88,16 +193,16 @@ export function EntityBoard({
 
   return (
     <div className={`entity-board${isPending ? " is-pending" : ""}`}>
-      {allColumns.map((col) => (
+      {lanes.map((lane) => (
         <div
-          key={col}
+          key={lane.reactKey}
           className="entity-board-column"
           onDragOver={handleDragOver}
-          onDrop={(e) => handleDrop(e, col)}
+          onDrop={(e) => handleDrop(e, lane.storageValue)}
         >
-          <h3 className="entity-board-column-title">{col}</h3>
+          <h3 className="entity-board-column-title">{lane.title}</h3>
           <div className="entity-board-day-events">
-            {(byColumn.get(col) ?? []).map((entity) => {
+            {(byLane.get(lane.reactKey) ?? []).map((entity) => {
               const title = String((entity.data as Record<string, unknown>)?.[titleField] ?? "Untitled");
               return (
                 <div

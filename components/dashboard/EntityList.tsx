@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { RelationMultiCell } from "./RelationMultiCell";
 import { TicketSoldCell } from "./TicketSoldCell";
+import { EntityListRowWithBacklinks } from "./EntityListRowWithBacklinks";
+import type { InverseBacklinkSection } from "@/lib/inverse-relation-backlinks";
 import {
   getModulePaymentType,
   getEffectivePaymentType,
@@ -8,6 +10,7 @@ import {
   getEntitySuggestedDonationCents,
 } from "@/lib/module-settings";
 import { formatDateIfApplicable } from "@/lib/format";
+import { APP_CONFIG } from "@/lib/app-config";
 
 type Field = {
   id: string;
@@ -31,6 +34,8 @@ export function EntityList({
   entities,
   columnSlugs,
   allowRefund = true,
+  relationLabels,
+  inverseBacklinksByEntityId,
 }: {
   moduleSlug: string;
   /** Module with settings (for payment/donation column). */
@@ -40,14 +45,27 @@ export function EntityList({
   columnSlugs?: string[];
   /** Show Refund button in ticket modal (feature flag). */
   allowRefund?: boolean;
+  /** Per field slug, map of related entity id → display label (list/table). */
+  relationLabels?: Record<string, Record<string, string>>;
+  /** When relation fields opt in, expandable rows show source records linking to each target row. */
+  inverseBacklinksByEntityId?: Record<string, InverseBacklinkSection[]>;
 }) {
+  const maxCols = APP_CONFIG.entityListMaxColumns;
   const columns = columnSlugs?.length
     ? columnSlugs.map((slug) => fields.find((f) => f.slug === slug)).filter(Boolean) as Field[]
-    : fields.slice(0, 6);
+    : fields.slice(0, maxCols);
   const showAmountColumn = module != null && getModulePaymentType(module) != null;
+  const dataColumnCount = columns.length + (showAmountColumn ? 1 : 0);
+  const wideTable = dataColumnCount >= 6;
+  const colSpan = columns.length + (showAmountColumn ? 1 : 0) + 1;
 
   return (
     <div className="entity-table-wrap">
+    {wideTable && (
+      <p className="entity-list-table-scroll-hint">
+        Tip: the first column and <strong>Edit</strong> stay pinned; scroll sideways to see the rest.
+      </p>
+    )}
     <table className="entity-table">
       <thead>
         <tr>
@@ -81,15 +99,19 @@ export function EntityList({
             const entityTitle = String(
               (entity.data as Record<string, unknown>)?.[columns[0]?.slug ?? "name"] ?? "Item"
             );
+            const inverseSections = inverseBacklinksByEntityId?.[entity.id];
+            const hasInverse = inverseSections && inverseSections.length > 0;
+            const editHref = `/dashboard/m/${moduleSlug}/${entity.id}`;
 
-            return (
-              <tr key={entity.id}>
+            const dataCells = (
+              <>
                 {columns.map((f) => (
                   <td key={f.id}>
                     {formatCellValue(
                       (entity.data as Record<string, unknown>)[f.slug],
                       f,
-                      entity
+                      entity,
+                      relationLabels
                     )}
                   </td>
                 ))}
@@ -106,9 +128,28 @@ export function EntityList({
                     )}
                   </td>
                 )}
+              </>
+            );
+
+            if (hasInverse) {
+              return (
+                <EntityListRowWithBacklinks
+                  key={entity.id}
+                  colSpan={colSpan}
+                  inverseSections={inverseSections}
+                  editHref={editHref}
+                >
+                  {dataCells}
+                </EntityListRowWithBacklinks>
+              );
+            }
+
+            return (
+              <tr key={entity.id}>
+                {dataCells}
                 <td>
                   <Link
-                    href={`/dashboard/m/${moduleSlug}/${entity.id}`}
+                    href={editHref}
                     className="btn btn-secondary"
                     style={{ padding: "0.25rem 0.5rem", fontSize: "0.8125rem" }}
                   >
@@ -137,9 +178,15 @@ function formatAmount(cents: number): string {
 function formatCellValue(
   value: unknown,
   field: Field,
-  _entity: Entity
+  _entity: Entity,
+  relationLabels?: Record<string, Record<string, string>>
 ): React.ReactNode {
   if (value == null) return "—";
+  if (field.fieldType === "relation" && typeof value === "string" && value.trim() !== "") {
+    const map = relationLabels?.[field.slug];
+    if (map?.[value]) return map[value];
+    return value;
+  }
   if (Array.isArray(value)) {
     if (value.length === 0) return "—";
     if (field.fieldType === "relation-multi") {
@@ -153,6 +200,7 @@ function formatCellValue(
             entityIds={value as string[]}
             targetModuleSlug={targetSlug}
             fieldName={field.name}
+            labelById={relationLabels?.[field.slug]}
           />
         );
       }

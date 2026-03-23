@@ -16,6 +16,11 @@ import { RequestApprovalForm } from "@/components/dashboard/RequestApprovalForm"
 import { formatDate } from "@/lib/format";
 import { requestApproval } from "@/app/dashboard/actions";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
+import { isPlatformAdmin } from "@/lib/developer-setup";
+import { PlatformHardDeleteEntityButton } from "@/components/dashboard/PlatformHardDeleteEntityButton";
+import { RestoreEntityButton } from "@/components/dashboard/RestoreEntityButton";
+import { InverseRelationBacklinks } from "@/components/dashboard/InverseRelationBacklinks";
+import { getInverseRelationBacklinkSections } from "@/lib/inverse-relation-backlinks";
 
 export default async function EditEntityPage({
   params,
@@ -30,24 +35,33 @@ export default async function EditEntityPage({
   const canRead = await hasPermission(userId, PERMISSIONS.entitiesRead);
   if (!canRead) notFound();
 
-  const [module_, entity] = await Promise.all([
-    prisma.module.findFirst({
-      where: { tenantId, slug: moduleSlug, isActive: true },
-      include: { fields: { orderBy: { sortOrder: "asc" } } },
-    }),
-    prisma.entity.findFirst({
-      where: { id: entityId, tenantId, deletedAt: null },
-      include: {
-        orderLines: {
-          include: { order: { select: { purchaserName: true, purchaserEmail: true, createdAt: true } } },
-          orderBy: { order: { createdAt: "desc" } },
-        },
-      },
-    }),
-  ]);
+  const userEmail = (
+    await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
+  )?.email;
+  const userIsPlatformAdmin = isPlatformAdmin(userEmail ?? null);
 
-  if (!module_ || !entity) notFound();
-  if (entity.moduleId !== module_.id) notFound();
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug, isActive: true },
+    include: { fields: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!module_) notFound();
+
+  const entity = await prisma.entity.findFirst({
+    where: {
+      id: entityId,
+      tenantId,
+      moduleId: module_.id,
+      ...(!userIsPlatformAdmin ? { deletedAt: null } : {}),
+    },
+    include: {
+      orderLines: {
+        include: { order: { select: { purchaserName: true, purchaserEmail: true, createdAt: true } } },
+        orderBy: { order: { createdAt: "desc" } },
+      },
+    },
+  });
+
+  if (!entity) notFound();
 
   const data = (entity.data as Record<string, unknown>) ?? {};
   const metadata = (entity.metadata as Record<string, unknown>) ?? {};
@@ -72,6 +86,10 @@ export default async function EditEntityPage({
     select: { approvalType: true },
   });
   const pendingApprovalTypes = pendingApprovals.map((a) => a.approvalType);
+  const isSoftDeleted = entity.deletedAt != null;
+
+  const inverseBacklinkSections =
+    !isSoftDeleted ? await getInverseRelationBacklinkSections(tenantId, moduleSlug, entityId) : [];
 
   return (
     <div>
@@ -81,25 +99,56 @@ export default async function EditEntityPage({
           <Link href={`/dashboard/m/${moduleSlug}`} className="btn btn-secondary">
             Back to list
           </Link>
-          <form action={duplicateEntityFormAction} className="inline-form">
-            <input type="hidden" name="entityId" value={entityId} />
-            <input type="hidden" name="moduleSlug" value={moduleSlug} />
-            <button type="submit" className="btn btn-secondary">
-              Clone
-            </button>
-          </form>
-          <DeleteEntityButton entityId={entityId} moduleSlug={moduleSlug} />
+          {!isSoftDeleted && (
+            <form action={duplicateEntityFormAction} className="inline-form">
+              <input type="hidden" name="entityId" value={entityId} />
+              <input type="hidden" name="moduleSlug" value={moduleSlug} />
+              <button type="submit" className="btn btn-secondary">
+                Clone
+              </button>
+            </form>
+          )}
+          {!isSoftDeleted && <DeleteEntityButton entityId={entityId} moduleSlug={moduleSlug} />}
+          {userIsPlatformAdmin && (
+            <>
+              {isSoftDeleted && (
+                <RestoreEntityButton
+                  entityId={entityId}
+                  moduleSlug={moduleSlug}
+                  platformAdmin
+                />
+              )}
+              <PlatformHardDeleteEntityButton entityId={entityId} moduleSlug={moduleSlug} />
+            </>
+          )}
         </div>
       </div>
-      <section className="related-records" style={{ marginBottom: "1.5rem" }}>
-        <h3>Approvals</h3>
-        <RequestApprovalForm
-          entityId={entityId}
-          moduleSlug={moduleSlug}
-          requestAction={requestApproval}
-          existingPendingTypes={pendingApprovalTypes}
-        />
-      </section>
+      {isSoftDeleted && (
+        <p
+          className="banner-warning"
+          style={{
+            marginBottom: "1rem",
+            padding: "0.75rem 1rem",
+            background: "#fffbeb",
+            border: "1px solid #fcd34d",
+            borderRadius: "8px",
+            color: "#92400e",
+          }}
+        >
+          This record is <strong>soft-deleted</strong>. Platform tools: restore to the live list, or permanently delete to remove the row (subject to order/payment/ledger checks).
+        </p>
+      )}
+      {!isSoftDeleted && (
+        <section className="related-records" style={{ marginBottom: "1.5rem" }}>
+          <h3>Approvals</h3>
+          <RequestApprovalForm
+            entityId={entityId}
+            moduleSlug={moduleSlug}
+            requestAction={requestApproval}
+            existingPendingTypes={pendingApprovalTypes}
+          />
+        </section>
+      )}
       {activityList.length > 0 && (
         <section className="related-records" style={{ marginBottom: "1.5rem" }}>
           <h3>Activity</h3>
@@ -156,20 +205,39 @@ export default async function EditEntityPage({
           </ul>
         </section>
       )}
-      <EntityForm
-        moduleSlug={moduleSlug}
-        moduleName={module_.name}
-        fields={module_.fields}
-        initialData={data}
-        entityId={entity.id}
-        relationOptions={relationOptions}
-        modulePaymentType={modulePaymentType ?? undefined}
-        entityPaymentType={entityPaymentType ?? undefined}
-        priceCents={priceCents ?? undefined}
-        suggestedDonationAmountCents={suggestedDonationAmountCents ?? undefined}
-        capacity={capacity ?? undefined}
-        action={updateEntity.bind(null, { entityId: entity.id })}
-      />
+      {!isSoftDeleted ? (
+        <EntityForm
+          moduleSlug={moduleSlug}
+          moduleName={module_.name}
+          fields={module_.fields}
+          initialData={data}
+          entityId={entity.id}
+          relationOptions={relationOptions}
+          modulePaymentType={modulePaymentType ?? undefined}
+          entityPaymentType={entityPaymentType ?? undefined}
+          priceCents={priceCents ?? undefined}
+          suggestedDonationAmountCents={suggestedDonationAmountCents ?? undefined}
+          capacity={capacity ?? undefined}
+          action={updateEntity.bind(null, { entityId: entity.id })}
+        />
+      ) : (
+        <section className="settings-hint" style={{ marginTop: "0.5rem" }}>
+          <p style={{ marginBottom: "0.5rem" }}>Editing is disabled while the record is deleted. Restore it to edit fields.</p>
+          <pre
+            style={{
+              fontSize: "0.8125rem",
+              padding: "1rem",
+              background: "#f8fafc",
+              borderRadius: "8px",
+              overflow: "auto",
+              maxHeight: "20rem",
+            }}
+          >
+            {JSON.stringify(data, null, 2)}
+          </pre>
+        </section>
+      )}
+      {!isSoftDeleted && <InverseRelationBacklinks sections={inverseBacklinkSections} />}
     </div>
   );
 }

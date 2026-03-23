@@ -2,9 +2,32 @@
  * Module- and entity-level payment/donation settings.
  * Module: module.settings.paymentType (default for all entities).
  * Entity: entity.metadata.paymentType (override per record: "payment" | "donation" | "none" | omit = use module default).
+ *
+ * List order: module.settings.listOrder — "asc" | "desc" for createdAt when fetching records (before view sort).
  */
 
 export type ModulePaymentType = "payment" | "donation" | null;
+
+/** Primary fetch order for module entities (createdAt). View-defined sort still overrides in memory when present. */
+export const MODULE_LIST_ORDER_KEY = "listOrder";
+
+export type ModuleListCreatedAtOrder = "asc" | "desc";
+
+export function getModuleEntityListCreatedAtOrder(module: { settings?: unknown } | null): ModuleListCreatedAtOrder {
+  if (!module?.settings || typeof module.settings !== "object") return "desc";
+  const v = (module.settings as Record<string, unknown>)[MODULE_LIST_ORDER_KEY];
+  if (v === "asc") return "asc";
+  return "desc";
+}
+
+export function mergeModuleListOrder(
+  existingSettings: Record<string, unknown> | null,
+  order: ModuleListCreatedAtOrder
+): Record<string, unknown> {
+  const out = { ...(existingSettings ?? {}) };
+  out[MODULE_LIST_ORDER_KEY] = order;
+  return out;
+}
 
 /** Entity override: "none" = no payment for this record; "payment" | "donation" = require that; omit = use module default. */
 export type EntityPaymentType = "payment" | "donation" | "none" | null;

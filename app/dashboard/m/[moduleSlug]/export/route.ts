@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromCookie } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { applyViewToEntities, getColumnOrder, type ViewConfig } from "@/lib/view-utils";
+import {
+  applyViewToEntities,
+  filterEntitiesByKeyword,
+  getColumnOrder,
+  type ViewConfig,
+} from "@/lib/view-utils";
 import { APP_CONFIG } from "@/lib/app-config";
+import { getModuleEntityListCreatedAtOrder } from "@/lib/module-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +33,7 @@ export async function GET(
   const { moduleSlug } = await params;
   const viewId = request.nextUrl.searchParams.get("view")?.trim() || null;
   const showDeleted = request.nextUrl.searchParams.get("deleted") === "1";
+  const searchQuery = request.nextUrl.searchParams.get("q")?.trim() ?? "";
 
   const module_ = await prisma.module.findFirst({
     where: { tenantId: session.tenantId, slug: moduleSlug, isActive: true },
@@ -48,13 +55,14 @@ export async function GET(
       };
   }
 
+  const listOrder = getModuleEntityListCreatedAtOrder(module_);
   const entities = await prisma.entity.findMany({
     where: {
       tenantId: session.tenantId,
       moduleId: module_.id,
       ...(showDeleted ? { deletedAt: { not: null } } : { deletedAt: null }),
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: { createdAt: listOrder },
     take: EXPORT_LIMIT,
     select: { id: true, data: true, createdAt: true },
   });
@@ -64,7 +72,7 @@ export async function GET(
     viewConfig
   );
   const fieldSlugs = module_.fields.map((f) => f.slug);
-  const columnSlugs = getColumnOrder(viewConfig, fieldSlugs, 50);
+  const columnSlugs = getColumnOrder(viewConfig, fieldSlugs, APP_CONFIG.entityListMaxColumns);
   const headerSlugs = ["id", "createdAt", ...columnSlugs];
   const header = headerSlugs.map(csvEscape).join(",") + "\n";
   const rows = filtered.map((e) => {

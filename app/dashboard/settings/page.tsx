@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { SuccessBanner } from "@/components/dashboard/SuccessBanner";
-import { getDashboardSettings } from "@/lib/dashboard-settings";
+import { getDashboardSettings, orderModulesBySettings } from "@/lib/dashboard-settings";
 import { getFeatureFlags } from "@/lib/feature-flags";
 import { getModulePaymentType } from "@/lib/module-settings";
 import { getTenantConnectConfig } from "@/lib/stripe-connect";
@@ -67,6 +67,11 @@ export default async function DashboardSettingsPage({
     }),
   ]);
   const dashboardSettings = getDashboardSettings(tenant?.settings ?? null);
+  const hubOrderedModules = orderModulesBySettings(modules, dashboardSettings.sidebarOrder).map((m) => ({
+    id: m.id,
+    name: m.name,
+    slug: m.slug,
+  }));
   const settingsObj = (tenant?.settings as Record<string, unknown>) ?? {};
   const site = (settingsObj.site as Record<string, unknown>) ?? {};
   const pages = (settingsObj.pages as Record<string, unknown>) ?? {};
@@ -170,6 +175,7 @@ export default async function DashboardSettingsPage({
       <SettingsSectionCards
         tenantId={tenantId}
         tenantSlug={tenant?.slug ?? null}
+        hubOrderedModules={hubOrderedModules}
         updateAction={updateDashboardSettings.bind(null, tenantId)}
         branding={dashboardSettings.branding}
         home={dashboardSettings.home}

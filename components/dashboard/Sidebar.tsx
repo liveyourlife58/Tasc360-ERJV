@@ -81,7 +81,7 @@ export async function Sidebar({
               href="/dashboard"
               className={`${linkBase} ${isActive("/dashboard", pathname) ? linkActive : ""}`}
             >
-              Home
+              Dashboard
             </Link>
             {orderedModules.map((m) => {
               const href = `/dashboard/m/${m.slug}`;
