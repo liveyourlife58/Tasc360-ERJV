@@ -1736,10 +1736,11 @@ function BackendCustomerLoginsForm({
   deactivateEndUserFormAction?: (formData: FormData) => Promise<void>;
   sendEndUserPasswordResetFormAction?: (formData: FormData) => Promise<void>;
 }) {
+  const [settingsState, settingsFormAction] = useActionState(updateAction, null);
   const [inviteState, inviteFormAction] = useActionState(inviteEndUserAction ?? (async () => ({ error: "Not configured" })), null);
   return (
     <div className="settings-form">
-      <form action={updateAction} className="settings-form">
+      <form action={settingsFormAction} className="settings-form">
         <FormExtraFields fields={extraFormFields} />
         <input type="hidden" name="settingsSection" value="backend-customer-logins" />
         <div className="settings-single-section" style={{ marginBottom: "1.5rem" }}>
@@ -1755,6 +1756,9 @@ function BackendCustomerLoginsForm({
               <span>Allow self-signup (anyone can create an account)</span>
             </label>
           </div>
+          {settingsState && typeof settingsState === "object" && "error" in settingsState ? (
+            <p className="view-error" role="alert">{String((settingsState as { error: string }).error)}</p>
+          ) : null}
           <button type="submit" className="btn btn-primary" style={{ marginTop: "0.75rem" }}>Save</button>
         </div>
       </form>
