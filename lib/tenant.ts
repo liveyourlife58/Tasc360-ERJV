@@ -50,33 +50,23 @@ export async function getTenantBySlug(slug: string) {
   });
 }
 
-/** Normalize `settings.site.customDomain` for comparison (must not throw on bad JSON types). */
-function normalizeStoredCustomDomain(raw: unknown): string | null {
-  if (raw == null) return null;
-  if (typeof raw !== "string") return null;
-  const s = raw.toLowerCase().replace(/^www\./, "").trim();
-  return s.length > 0 ? s : null;
-}
-
 /** Resolve tenant by custom domain (e.g. donate.tenant.org). Store in tenant.settings.site.customDomain. */
 export async function getTenantByCustomDomain(host: string | null): Promise<{ id: string; slug: string } | null> {
   if (!host || typeof host !== "string") return null;
   const normalized = host.toLowerCase().replace(/^www\./, "").trim();
   if (!normalized) return null;
-  const tenants = await prisma.tenant.findMany({
-    where: { isActive: true },
-    select: { id: true, slug: true, settings: true },
-  });
-  for (const t of tenants) {
-    const settings = t.settings && typeof t.settings === "object" && !Array.isArray(t.settings)
-      ? (t.settings as Record<string, unknown>)
-      : null;
-    const siteRaw = settings?.site;
-    const site = siteRaw && typeof siteRaw === "object" && !Array.isArray(siteRaw) ? (siteRaw as Record<string, unknown>) : null;
-    const customDomain = normalizeStoredCustomDomain(site?.customDomain);
-    if (customDomain === normalized) return { id: t.id, slug: t.slug };
-  }
-  return null;
+  // Single round-trip + server-side filter (avoids loading every tenant on each `/` request).
+  const rows = await prisma.$queryRaw<{ id: string; slug: string }[]>`
+    SELECT id::text AS id, slug
+    FROM tenants
+    WHERE is_active = true
+      AND NULLIF(trim(COALESCE(settings->'site'->>'customDomain', '')), '') IS NOT NULL
+      AND lower(regexp_replace(trim(settings->'site'->>'customDomain'), '^www\\.', '', 'i'))
+        = ${normalized}
+    LIMIT 1
+  `;
+  const row = rows[0];
+  return row ? { id: row.id, slug: row.slug } : null;
 }
 
 /** Public module config: keyed by module slug, value is { slug: URL segment, showInNav } */
