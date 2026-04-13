@@ -2,7 +2,6 @@
 
 import crypto from "crypto";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 import { hash } from "bcryptjs";
 import { createPlatformCheckoutSession, createPlatformPortalSession, updatePlatformSubscriptionQuantity } from "@/lib/stripe-platform";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
@@ -12,7 +11,7 @@ import { sendInviteEmail } from "@/lib/email";
 
 const INVITE_TOKEN_EXPIRY_DAYS = 7;
 
-export async function createSubscriptionCheckout(): Promise<{ error?: string }> {
+export async function createSubscriptionCheckout(): Promise<{ error?: string; redirectUrl?: string }> {
   const tenantId = (await headers()).get("x-tenant-id");
   const userId = (await headers()).get("x-user-id");
   if (!tenantId || !userId) return { error: "Unauthorized" };
@@ -28,18 +27,24 @@ export async function createSubscriptionCheckout(): Promise<{ error?: string }> 
   });
   const base = process.env.NEXT_PUBLIC_APP_URL
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-  const result = await createPlatformCheckoutSession(
-    tenantId,
-    `${base}/dashboard/subscription?success=1`,
-    `${base}/dashboard/subscription?cancel=1`,
-    user?.email ?? "",
-    tenant?.name ?? user?.name ?? ""
-  );
+  let result: Awaited<ReturnType<typeof createPlatformCheckoutSession>>;
+  try {
+    result = await createPlatformCheckoutSession(
+      tenantId,
+      `${base}/dashboard/subscription?success=1`,
+      `${base}/dashboard/subscription?cancel=1`,
+      user?.email ?? "",
+      tenant?.name ?? user?.name ?? ""
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Stripe checkout failed.";
+    return { error: msg.includes("STRIPE_SECRET_KEY") ? "Stripe is not configured (STRIPE_SECRET_KEY)." : msg };
+  }
   if ("error" in result) return { error: result.error };
-  redirect(result.url);
+  return { redirectUrl: result.url };
 }
 
-export async function openBillingPortal(): Promise<{ error?: string }> {
+export async function openBillingPortal(): Promise<{ error?: string; redirectUrl?: string }> {
   const tenantId = (await headers()).get("x-tenant-id");
   const userId = (await headers()).get("x-user-id");
   if (!tenantId || !userId) return { error: "Unauthorized" };
@@ -47,12 +52,15 @@ export async function openBillingPortal(): Promise<{ error?: string }> {
   if (!ok) return { error: "You don't have permission to manage billing." };
   const base = process.env.NEXT_PUBLIC_APP_URL
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-  const result = await createPlatformPortalSession(
-    tenantId,
-    `${base}/dashboard/subscription`
-  );
+  let result: Awaited<ReturnType<typeof createPlatformPortalSession>>;
+  try {
+    result = await createPlatformPortalSession(tenantId, `${base}/dashboard/subscription`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Billing portal failed.";
+    return { error: msg.includes("STRIPE_SECRET_KEY") ? "Stripe is not configured (STRIPE_SECRET_KEY)." : msg };
+  }
   if ("error" in result) return { error: result.error };
-  redirect(result.url);
+  return { redirectUrl: result.url };
 }
 
 export async function addTenantUser(

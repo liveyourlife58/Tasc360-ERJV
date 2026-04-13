@@ -1,7 +1,9 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { createSubscriptionCheckout, openBillingPortal } from "./actions";
+
+type BillingActionState = { error?: string; redirectUrl?: string } | null;
 
 export function SubscriptionBillingBlock({
   hasSubscription,
@@ -12,13 +14,20 @@ export function SubscriptionBillingBlock({
 }) {
   const [checkoutState, checkoutAction] = useActionState(
     async () => createSubscriptionCheckout(),
-    null as { error?: string } | null
+    null as BillingActionState
   );
   const [portalState, portalAction] = useActionState(
     async () => openBillingPortal(),
-    null as { error?: string } | null
+    null as BillingActionState
   );
   const err = checkoutState?.error ?? portalState?.error;
+  const redirectUrl = checkoutState?.redirectUrl ?? portalState?.redirectUrl;
+
+  useEffect(() => {
+    if (redirectUrl) {
+      window.location.assign(redirectUrl);
+    }
+  }, [redirectUrl]);
 
   return (
     <div style={{ marginTop: "1rem", display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
