@@ -60,6 +60,15 @@ export async function createPlatformCheckoutSession(
   }
   const stripe = getStripe();
   const customerId = await getOrCreatePlatformCustomer(tenantId, customerEmail, tenantName);
+  const portalReturnUrl = successUrl.includes("?") ? successUrl.slice(0, successUrl.indexOf("?")) : successUrl;
+  const reconciled = await reconcileCustomerSubscriptionsBeforeNewCheckout(
+    stripe,
+    customerId,
+    tenantId,
+    portalReturnUrl
+  );
+  if (reconciled != null) return reconciled;
+
   const activeCount = await prisma.user.count({ where: { tenantId, isActive: true } });
   const quantity = Math.max(1, activeCount);
   const session = await stripe.checkout.sessions.create({
@@ -152,6 +161,71 @@ async function applyStripeSubscriptionToTenant(sub: Stripe.Subscription): Promis
     },
   });
   return { tenantId };
+}
+
+/**
+ * One billing subscription per tenant (one Stripe customer per tenant).
+ * - Cancels stale `incomplete` / `incomplete_expired` subs so retries do not stack.
+ * - If a real subscription already exists, syncs DB and returns Billing Portal URL instead of new Checkout.
+ */
+async function reconcileCustomerSubscriptionsBeforeNewCheckout(
+  stripe: Stripe,
+  customerId: string,
+  tenantId: string,
+  portalReturnUrl: string
+): Promise<{ url: string } | { error: string } | null> {
+  const isOurs = (sub: Stripe.Subscription) =>
+    !sub.metadata?.tenantId || sub.metadata.tenantId === tenantId;
+
+  const firstList = await stripe.subscriptions.list({ customer: customerId, limit: 100 });
+  for (const sub of firstList.data) {
+    if (!isOurs(sub)) continue;
+    if (sub.status === "incomplete" || sub.status === "incomplete_expired") {
+      try {
+        await stripe.subscriptions.cancel(sub.id);
+      } catch {
+        // already canceled / terminal
+      }
+    }
+  }
+
+  const afterList = await stripe.subscriptions.list({ customer: customerId, limit: 100 });
+  const blocking = afterList.data.filter(
+    (sub) =>
+      isOurs(sub) &&
+      (sub.status === "active" ||
+        sub.status === "trialing" ||
+        sub.status === "past_due" ||
+        sub.status === "unpaid")
+  );
+  blocking.sort((a, b) => b.created - a.created);
+  // One subscription per tenant: if Checkout was retried and left multiple actives, keep the newest only.
+  for (let i = 1; i < blocking.length; i++) {
+    try {
+      await stripe.subscriptions.cancel(blocking[i].id);
+    } catch {
+      // ignore
+    }
+  }
+  const primary = blocking[0];
+  if (primary) {
+    await applyStripeSubscriptionToTenant(primary);
+    try {
+      const portal = await stripe.billingPortal.sessions.create({
+        customer: customerId,
+        return_url: portalReturnUrl,
+      });
+      if (!portal.url) return { error: "Failed to create billing portal session." };
+      return { url: portal.url };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Billing portal failed.";
+      return {
+        error: `${msg} Your subscription exists in Stripe — use the Dashboard or fix Customer portal settings.`,
+      };
+    }
+  }
+
+  return null;
 }
 
 /** Sync tenant subscription fields from Stripe subscription (e.g. after webhook). */

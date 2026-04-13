@@ -1,7 +1,17 @@
 "use client";
 
 import { useActionState, useEffect } from "react";
+import { useFormStatus } from "react-dom";
 import { createSubscriptionCheckout, openBillingPortal } from "./actions";
+
+function PendingSubmitButton({ label }: { label: string }) {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" className="btn btn-primary" disabled={pending}>
+      {pending ? "Please wait…" : label}
+    </button>
+  );
+}
 
 type BillingActionState = { error?: string; redirectUrl?: string } | null;
 
@@ -33,15 +43,11 @@ export function SubscriptionBillingBlock({
     <div style={{ marginTop: "1rem", display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
       {!hasSubscription ? (
         <form action={checkoutAction}>
-          <button type="submit" className="btn btn-primary">
-            Subscribe with Stripe
-          </button>
+          <PendingSubmitButton label="Subscribe with Stripe" />
         </form>
       ) : (
         <form action={portalAction}>
-          <button type="submit" className="btn btn-primary">
-            Manage billing
-          </button>
+          <PendingSubmitButton label="Manage billing" />
         </form>
       )}
       {err && <p className="view-error" style={{ margin: 0 }} role="alert">{err}</p>}
