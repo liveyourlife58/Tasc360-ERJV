@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { getTrialDays } from "@/lib/app-config";
+import { getBillingConfig } from "@/lib/billing";
 
 export function MarketingPage() {
   const trialDays = getTrialDays();
   const hasTrial = trialDays > 0;
+  const { perUserFeeUsd } = getBillingConfig();
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-slate-200/50 to-slate-100">
@@ -44,7 +46,7 @@ export function MarketingPage() {
               </p>
             )}
             <p className="text-2xl text-slate-900 mb-1">
-              <strong className="text-teal-600">$25</strong> per user per month
+              <strong className="text-teal-600">${perUserFeeUsd}</strong> per user per month
             </p>
             <p className="text-[15px] text-slate-500 mb-3">
               One workspace, one bill.
