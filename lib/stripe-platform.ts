@@ -140,7 +140,8 @@ export async function syncTenantSubscriptionFromCheckoutSession(sessionId: strin
 async function applyStripeSubscriptionToTenant(sub: Stripe.Subscription): Promise<{ tenantId: string } | null> {
   const tenantId = sub.metadata?.tenantId;
   if (!tenantId || typeof tenantId !== "string") return null;
-  const periodEnd = sub.current_period_end;
+  const subData = sub as Stripe.Subscription & { current_period_end?: number };
+  const periodEnd = subData.current_period_end;
   await prisma.tenant.update({
     where: { id: tenantId },
     data: {
