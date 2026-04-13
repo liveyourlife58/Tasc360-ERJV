@@ -50,6 +50,14 @@ export async function getTenantBySlug(slug: string) {
   });
 }
 
+/** Normalize `settings.site.customDomain` for comparison (must not throw on bad JSON types). */
+function normalizeStoredCustomDomain(raw: unknown): string | null {
+  if (raw == null) return null;
+  if (typeof raw !== "string") return null;
+  const s = raw.toLowerCase().replace(/^www\./, "").trim();
+  return s.length > 0 ? s : null;
+}
+
 /** Resolve tenant by custom domain (e.g. donate.tenant.org). Store in tenant.settings.site.customDomain. */
 export async function getTenantByCustomDomain(host: string | null): Promise<{ id: string; slug: string } | null> {
   if (!host || typeof host !== "string") return null;
@@ -60,8 +68,12 @@ export async function getTenantByCustomDomain(host: string | null): Promise<{ id
     select: { id: true, slug: true, settings: true },
   });
   for (const t of tenants) {
-    const site = (t.settings as Record<string, unknown>)?.site as Record<string, unknown> | undefined;
-    const customDomain = (site?.customDomain as string)?.toLowerCase()?.replace(/^www\./, "")?.trim();
+    const settings = t.settings && typeof t.settings === "object" && !Array.isArray(t.settings)
+      ? (t.settings as Record<string, unknown>)
+      : null;
+    const siteRaw = settings?.site;
+    const site = siteRaw && typeof siteRaw === "object" && !Array.isArray(siteRaw) ? (siteRaw as Record<string, unknown>) : null;
+    const customDomain = normalizeStoredCustomDomain(site?.customDomain);
     if (customDomain === normalized) return { id: t.id, slug: t.slug };
   }
   return null;

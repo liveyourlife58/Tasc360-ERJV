@@ -28,7 +28,12 @@ export const metadata: Metadata = {
 export default async function HomePage() {
   const headersList = await headers();
   const host = headersList.get("host") ?? undefined;
-  const tenant = await getTenantByCustomDomain(host ?? null);
+  let tenant: Awaited<ReturnType<typeof getTenantByCustomDomain>> = null;
+  try {
+    tenant = await getTenantByCustomDomain(host ?? null);
+  } catch (e) {
+    console.error("[HomePage] custom domain lookup failed", e);
+  }
   if (tenant) {
     redirect(`/s/${tenant.slug}`);
   }
