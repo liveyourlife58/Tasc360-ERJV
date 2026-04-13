@@ -3,7 +3,19 @@
  * Requires OPENAI_API_KEY; all suggestions use the OpenAI API.
  */
 
-const ALLOWED_FIELD_TYPES = ["text", "number", "date", "boolean", "select", "json", "relation", "relation-multi", "file"] as const;
+const ALLOWED_FIELD_TYPES = [
+  "text",
+  "number",
+  "date",
+  "boolean",
+  "select",
+  "tenant-user",
+  "json",
+  "relation",
+  "relation-multi",
+  "file",
+  "activity",
+] as const;
 
 export type SuggestedField = {
   name: string;
@@ -52,8 +64,8 @@ async function openaiSuggestModule(
   const client = new OpenAI({ apiKey });
   const sys = `You are an assistant that suggests a single database module (like a table) from a short user description.
 Return valid JSON only, no markdown, with this shape:
-{ "name": "Human Name", "slug": "snake_slug", "description": "optional", "fields": [ { "name": "Field Name", "slug": "snake_slug", "fieldType": "text"|"number"|"date"|"boolean"|"select"|"json"|"relation"|"relation-multi"|"file", "isRequired": boolean, "settings": {} or { "options": ["a","b"] } for select, or { "targetModuleSlug": "other_module_slug" } for relation/relation-multi } ] }
-Slug must be unique. Existing slugs: ${existingSlugs.join(", ")}. Field types: text, number, date, boolean, select, json, relation (single link to another module), relation-multi (multiple links; use for "assign multiple X to this record", e.g. customers on a group), file (attachment).
+{ "name": "Human Name", "slug": "snake_slug", "description": "optional", "fields": [ { "name": "Field Name", "slug": "snake_slug", "fieldType": "text"|"number"|"date"|"boolean"|"select"|"tenant-user"|"json"|"relation"|"relation-multi"|"file"|"activity", "isRequired": boolean, "settings": {} or { "options": ["a","b"] } for select, or { "targetModuleSlug": "other_module_slug" } for relation/relation-multi; tenant-user has no settings (options are workspace team members); activity is read-only on the record form (optional settings.activityLimit 1–50, default 10) } ] }
+Slug must be unique. Existing slugs: ${existingSlugs.join(", ")}. Field types: text, number, date, boolean, select, tenant-user (pick one workspace team user), json, relation (single link to another module), relation-multi (multiple links; use for "assign multiple X to this record", e.g. customers on a group), file (attachment), activity (shows recent audit events on the record; not stored).
 Include every field the user asks for. Use "date" for dates, "text" for location/description/name, "number" for counts, "relation" for a single link to another module, "relation-multi" when the user wants to assign multiple records from another module (e.g. "multiple customers", "list of contacts").`;
   try {
     const res = await client.chat.completions.create({
@@ -193,7 +205,7 @@ export type DashboardIntent =
   | { intent: "similar_module_exists"; payload: { suggestedSlug: string; suggestedName: string; existing: { slug: string; name: string } } };
 
 const INTENT_LIST = `
-1) create_module - payload: { name, slug, description?, fields: [ { name, slug, fieldType, isRequired?, settings? } ] }. fieldType: text|number|date|boolean|select|json|relation|relation-multi|file. Use relation-multi for "assign multiple X" (e.g. multiple customers per group); settings: { targetModuleSlug: "other_module_slug" }.
+1) create_module - payload: { name, slug, description?, fields: [ { name, slug, fieldType, isRequired?, settings? } ] }. fieldType: text|number|date|boolean|select|tenant-user|json|relation|relation-multi|file|activity. Use relation-multi for "assign multiple X" (e.g. multiple customers per group); settings: { targetModuleSlug: "other_module_slug" }.
 2) add_fields - payload: { moduleSlug, fields: [ same ] }. Use exact module slug.
 3) create_view - payload: { moduleSlug, view: { name, viewType?: "list"|"board"|"calendar", filter: [], sort: [ { field, dir } ], columns: [] } }. viewType defaults to list. filter op: eq|neq|contains|gt|lt|gte|lte|empty.
 4) enable_public_module - payload: { moduleSlug }. Show this module on the public/customer site.

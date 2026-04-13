@@ -4,7 +4,11 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { EntityForm } from "@/components/dashboard/EntityForm";
 import { updateEntity, duplicateEntityFormAction, getRelatedEntities, getEntityEvents } from "@/app/dashboard/actions";
-import { getRelationOptions } from "@/lib/relation-options";
+import {
+  fetchRelationDisplayLabelsForAuditEvents,
+  getRelationOptions,
+  mergeRelationOptionsWithAuditLabels,
+} from "@/lib/relation-options";
 import {
   getModulePaymentType,
   getEntityPaymentOverride,
@@ -21,6 +25,10 @@ import { PlatformHardDeleteEntityButton } from "@/components/dashboard/PlatformH
 import { RestoreEntityButton } from "@/components/dashboard/RestoreEntityButton";
 import { InverseRelationBacklinks } from "@/components/dashboard/InverseRelationBacklinks";
 import { getInverseRelationBacklinkSections } from "@/lib/inverse-relation-backlinks";
+import { formatEntityEventActorLabel } from "@/lib/entity-event-actor";
+import { EntityEventChangesSummary } from "@/components/dashboard/EntityEventChangesSummary";
+import { isDashboardFeatureEnabled } from "@/lib/dashboard-features";
+import { formatTenantUserOptionLabel } from "@/lib/tenant-user-field";
 
 export default async function EditEntityPage({
   params,
@@ -65,7 +73,6 @@ export default async function EditEntityPage({
 
   const data = (entity.data as Record<string, unknown>) ?? {};
   const metadata = (entity.metadata as Record<string, unknown>) ?? {};
-  const relationOptions = await getRelationOptions(tenantId, module_.fields);
   const modulePaymentType = getModulePaymentType(module_);
   const entityPaymentType = getEntityPaymentOverride(entity);
   const priceCents = getEntityPriceCents(entity);
@@ -77,19 +84,67 @@ export default async function EditEntityPage({
   const totalCheckedIn = orderLines.reduce((sum, line) => sum + (line.checkedInQuantity ?? 0), 0);
   const hasOrders = orderLines.length > 0;
 
-  const { related } = await getRelatedEntities(entity.id);
+  const activityEventFetchLimit = module_.fields.some((f) => f.fieldType === "activity") ? 50 : 20;
+
+  const [{ related }, { events: activityEvents }, relationOptions, tenantRow, tenantUsers] = await Promise.all([
+    getRelatedEntities(entity.id, { sourceModuleFields: module_.fields }),
+    getEntityEvents(entity.id, activityEventFetchLimit),
+    getRelationOptions(tenantId, module_.fields),
+    prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    }),
+    module_.fields.some((f) => f.fieldType === "tenant-user")
+      ? prisma.user.findMany({
+          where: { tenantId, isActive: true },
+          select: { id: true, name: true, email: true },
+          orderBy: { email: "asc" },
+        })
+      : Promise.resolve([] as { id: string; name: string | null; email: string }[]),
+  ]);
+  const tenantUserOptions = tenantUsers.map((u) => ({
+    id: u.id,
+    label: formatTenantUserOptionLabel(u),
+  }));
+  const tenantUserLabelsForAudit = Object.fromEntries(
+    tenantUsers.map((u) => [u.id, formatTenantUserOptionLabel(u)])
+  );
   const relatedList = related ?? [];
-  const { events: activityEvents } = await getEntityEvents(entity.id);
   const activityList = activityEvents ?? [];
-  const pendingApprovals = await prisma.approval.findMany({
-    where: { entityId, tenantId, status: "pending" },
-    select: { approvalType: true },
-  });
+  const auditRelationLabels = await fetchRelationDisplayLabelsForAuditEvents(
+    tenantId,
+    module_.fields,
+    activityList.map((e) => e.data)
+  );
+  const relationOptionsForActivity = mergeRelationOptionsWithAuditLabels(
+    relationOptions,
+    auditRelationLabels,
+    module_.fields
+  );
+  const approvalsEnabled = isDashboardFeatureEnabled(tenantRow?.settings ?? null, "approvals");
+  const pendingApprovals = approvalsEnabled
+    ? await prisma.approval.findMany({
+        where: { entityId, tenantId, status: "pending" },
+        select: { approvalType: true },
+      })
+    : [];
   const pendingApprovalTypes = pendingApprovals.map((a) => a.approvalType);
   const isSoftDeleted = entity.deletedAt != null;
 
   const inverseBacklinkSections =
     !isSoftDeleted ? await getInverseRelationBacklinkSections(tenantId, moduleSlug, entityId) : [];
+
+  const fieldTypeBySlug = Object.fromEntries(module_.fields.map((f) => [f.slug, f.fieldType]));
+
+  const activityActorLabel = (ev: (typeof activityList)[number]) =>
+    formatEntityEventActorLabel(ev.data as Record<string, unknown> | null, ev.createdByUser);
+
+  const entityActivityRows = activityList.map((ev) => ({
+    id: ev.id,
+    eventType: ev.eventType,
+    createdAt: ev.createdAt.toISOString(),
+    actorLabel: activityActorLabel(ev),
+  }));
 
   return (
     <div>
@@ -138,7 +193,7 @@ export default async function EditEntityPage({
           This record is <strong>soft-deleted</strong>. Platform tools: restore to the live list, or permanently delete to remove the row (subject to order/payment/ledger checks).
         </p>
       )}
-      {!isSoftDeleted && (
+      {approvalsEnabled && !isSoftDeleted && (
         <section className="related-records" style={{ marginBottom: "1.5rem" }}>
           <h3>Approvals</h3>
           <RequestApprovalForm
@@ -147,41 +202,6 @@ export default async function EditEntityPage({
             requestAction={requestApproval}
             existingPendingTypes={pendingApprovalTypes}
           />
-        </section>
-      )}
-      {activityList.length > 0 && (
-        <section className="related-records" style={{ marginBottom: "1.5rem" }}>
-          <h3>Activity</h3>
-          <ul className="activity-list">
-            {activityList.map((ev) => (
-              <li key={ev.id}>
-                <strong>{ev.eventType.replace(/_/g, " ")}</strong>
-                <span style={{ marginLeft: "0.5rem", color: "#94a3b8" }}>
-                  {formatDate(ev.createdAt)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {relatedList.length > 0 && (
-        <section className="related-records" style={{ marginBottom: "1.5rem" }}>
-          <h3>Related records</h3>
-          <ul className="related-records-list">
-            {relatedList.map((r) => {
-              const title = String(r.data?.name ?? r.data?.title ?? r.id.slice(0, 8));
-              return (
-                <li key={`${r.direction}-${r.relationType}-${r.id}`}>
-                  <Link href={`/dashboard/m/${r.moduleSlug}/${r.id}`}>
-                    {r.moduleName}: {title}
-                  </Link>
-                  <span style={{ marginLeft: "0.5rem", fontSize: "0.8125rem", color: "#64748b" }}>
-                    ({r.relationType} {r.direction === "out" ? "→" : "←"})
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
         </section>
       )}
       {hasOrders && (
@@ -213,6 +233,8 @@ export default async function EditEntityPage({
           initialData={data}
           entityId={entity.id}
           relationOptions={relationOptions}
+          tenantUserOptions={tenantUserOptions}
+          entityActivityRows={entityActivityRows}
           modulePaymentType={modulePaymentType ?? undefined}
           entityPaymentType={entityPaymentType ?? undefined}
           priceCents={priceCents ?? undefined}
@@ -235,6 +257,57 @@ export default async function EditEntityPage({
           >
             {JSON.stringify(data, null, 2)}
           </pre>
+        </section>
+      )}
+      {activityList.length > 0 && (
+        <section className="related-records" style={{ marginBottom: "1.5rem" }}>
+          <details className="activity-details">
+            <summary className="activity-details-summary">
+              Activity
+              <span className="activity-details-count">
+                {" "}
+                · {activityList.length} event{activityList.length !== 1 ? "s" : ""}
+              </span>
+            </summary>
+            <ul className="activity-list">
+              {activityList.map((ev) => (
+                <li key={ev.id}>
+                  <div>
+                    <strong>{ev.eventType.replace(/_/g, " ")}</strong>
+                    <span style={{ marginLeft: "0.5rem", color: "#64748b" }}>
+                      · by {activityActorLabel(ev)}
+                    </span>
+                    <span style={{ marginLeft: "0.5rem", color: "#94a3b8" }}>
+                      {formatDate(ev.createdAt)}
+                    </span>
+                  </div>
+                  <EntityEventChangesSummary
+                    data={ev.data as Record<string, unknown> | null}
+                    fieldTypeBySlug={fieldTypeBySlug}
+                    relationOptionsBySlug={relationOptionsForActivity}
+                    tenantUserLabels={tenantUserLabelsForAudit}
+                  />
+                </li>
+              ))}
+            </ul>
+          </details>
+        </section>
+      )}
+      {relatedList.length > 0 && (
+        <section className="related-records" style={{ marginBottom: "1.5rem" }}>
+          <h3>Related records</h3>
+          <ul className="related-records-list">
+            {relatedList.map((r) => (
+              <li key={`${r.direction}-${r.relationType}-${r.id}`}>
+                <Link href={`/dashboard/m/${r.moduleSlug}/${r.id}`}>
+                  {r.moduleName}: {r.displayTitle}
+                </Link>
+                <span style={{ marginLeft: "0.5rem", fontSize: "0.8125rem", color: "#64748b" }}>
+                  ({r.relationFieldLabel} {r.direction === "out" ? "→" : "←"})
+                </span>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
       {!isSoftDeleted && <InverseRelationBacklinks sections={inverseBacklinkSections} />}

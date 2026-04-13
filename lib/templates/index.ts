@@ -6,7 +6,18 @@
 export type TemplateField = {
   name: string;
   slug: string;
-  fieldType: "text" | "number" | "date" | "boolean" | "select" | "relation" | "relation-multi" | "file" | "json";
+  fieldType:
+    | "text"
+    | "number"
+    | "date"
+    | "boolean"
+    | "select"
+    | "tenant-user"
+    | "relation"
+    | "relation-multi"
+    | "file"
+    | "json"
+    | "activity";
   isRequired?: boolean;
   settings?: { options?: string[]; targetModuleSlug?: string };
 };

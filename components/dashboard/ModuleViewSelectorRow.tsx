@@ -37,6 +37,8 @@ export function ModuleViewSelectorRow({
   selectFieldsMeta,
   relationFieldSlugs,
   relationFieldsMeta,
+  tenantUserFieldSlugs,
+  tenantUserFieldsMeta,
   dateFieldSlugs,
   updateViewAction,
   deleteViewAction,
@@ -52,6 +54,8 @@ export function ModuleViewSelectorRow({
   selectFieldsMeta?: { slug: string; name: string; options: string[] }[];
   relationFieldSlugs?: string[];
   relationFieldsMeta?: { slug: string; name: string; options: { id: string; label: string }[] }[];
+  tenantUserFieldSlugs?: string[];
+  tenantUserFieldsMeta?: { slug: string; name: string; options: { id: string; label: string }[] }[];
   dateFieldSlugs?: string[];
   updateViewAction: (viewId: string, moduleSlug: string, prev: unknown, formData: FormData) => Promise<unknown>;
   deleteViewAction: (viewId: string, moduleSlug: string, prev: unknown, formData: FormData) => Promise<unknown>;
@@ -72,6 +76,8 @@ export function ModuleViewSelectorRow({
         selectFieldsMeta={selectFieldsMeta}
         relationFieldSlugs={relationFieldSlugs}
         relationFieldsMeta={relationFieldsMeta}
+        tenantUserFieldSlugs={tenantUserFieldSlugs}
+        tenantUserFieldsMeta={tenantUserFieldsMeta}
         dateFieldSlugs={dateFieldSlugs}
         updateViewAction={updateViewAction}
         deleteViewAction={deleteViewAction}

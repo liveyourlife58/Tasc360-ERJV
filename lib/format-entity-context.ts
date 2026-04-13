@@ -1,7 +1,9 @@
 /**
  * Format entity data as "field: value" lines for LLM context (Ask AI).
- * Supports field labels, and optional field types + locale for currency/date display.
+ * Supports field labels, and optional field types + locale + tenant timezone for display.
  */
+
+import { formatDateIfApplicable } from "@/lib/format";
 
 const CURRENCY_KEY_PATTERN = /cents|price|amount|goal|donation|suggested|total/i;
 
@@ -10,13 +12,15 @@ export type FormatEntityContextOptions = {
   fieldLabels?: Record<string, string>;
   fieldTypes?: Record<string, string>;
   locale?: string;
+  /** IANA zone for date fields (tenant `settings.timeZone`). */
+  timeZone?: string;
 };
 
 export function formatEntityDataForContext(
   data: Record<string, unknown>,
   options: FormatEntityContextOptions = {}
 ): string {
-  const { maxLength = 1200, fieldLabels = {}, fieldTypes = {}, locale } = options;
+  const { maxLength = 1200, fieldLabels = {}, fieldTypes = {}, locale, timeZone } = options;
   const lines: string[] = [];
   for (const [key, value] of Object.entries(data)) {
     const label = fieldLabels[key] ?? key;
@@ -24,13 +28,7 @@ export function formatEntityDataForContext(
     if (value == null || value === "") {
       lines.push(`${label}: —`);
     } else if (fieldType === "date" || fieldType === "datetime") {
-      const d = typeof value === "string" ? new Date(value) : (value as Date);
-      const display =
-        !Number.isNaN((d as Date).getTime()) && d
-          ? fieldType === "date"
-            ? (d as Date).toLocaleDateString(locale || undefined)
-            : (d as Date).toLocaleString(locale || undefined)
-          : String(value);
+      const display = formatDateIfApplicable(value, fieldType, locale, timeZone);
       lines.push(`${label}: ${String(value).slice(0, 30)} (${display})`);
     } else if (typeof value === "number" && !Number.isNaN(value) && CURRENCY_KEY_PATTERN.test(key)) {
       const display = (value / 100).toLocaleString(locale || "en-US", {

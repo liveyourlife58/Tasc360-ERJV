@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getTenantLocale, formatDateTime } from "@/lib/format";
 import { ActivityFilters } from "./ActivityFilters";
+import { formatEntityEventActorLabel } from "@/lib/entity-event-actor";
+import { readFieldChangesFromEventData, readMetadataChangesFromEventData } from "@/lib/entity-event-field-changes";
 
 export default async function ActivityPage({
   searchParams,
@@ -126,8 +128,23 @@ export default async function ActivityPage({
             events.map((e) => (
               <tr key={e.id}>
                 <td>{formatDateTime(e.createdAt, locale)}</td>
-                <td>{e.eventType}</td>
-                <td>{e.createdByUser ? (e.createdByUser.name || e.createdByUser.email) : "—"}</td>
+                <td>
+                  <div>{e.eventType}</div>
+                  {(() => {
+                    const d = e.data as Record<string, unknown> | null;
+                    const fc = readFieldChangesFromEventData(d);
+                    const mc = readMetadataChangesFromEventData(d);
+                    const n =
+                      (fc ? Object.keys(fc).length : 0) + (mc ? Object.keys(mc).length : 0);
+                    if (n === 0) return null;
+                    return (
+                      <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "0.15rem" }}>
+                        {n} field{n === 1 ? "" : "s"} changed (see record activity)
+                      </div>
+                    );
+                  })()}
+                </td>
+                <td>{formatEntityEventActorLabel(e.data as Record<string, unknown> | null, e.createdByUser)}</td>
                 <td>
                   {e.entity ? (
                     <Link href={`/dashboard/m/${e.entity.module?.slug ?? ""}/${e.entity.id}`}>

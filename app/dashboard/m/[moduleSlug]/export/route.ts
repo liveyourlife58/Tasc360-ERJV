@@ -2,14 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromCookie } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import {
-  applyViewToEntities,
-  filterEntitiesByKeyword,
-  getColumnOrder,
-  type ViewConfig,
-} from "@/lib/view-utils";
+import { applyViewToEntities, getColumnOrder, type ViewConfig } from "@/lib/view-utils";
+import { getModuleDeadlineFieldSortSpecs, sortEntitiesWithOverdueDeadlineFirst } from "@/lib/deadline-field";
+import { getTenantTimeZone } from "@/lib/tenant-timezone";
 import { APP_CONFIG } from "@/lib/app-config";
 import { getModuleEntityListCreatedAtOrder } from "@/lib/module-settings";
+import { fieldSlugsShownInEntityList } from "@/lib/field-entity-list";
+import { formatTenantUserOptionLabel } from "@/lib/tenant-user-field";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +54,12 @@ export async function GET(
       };
   }
 
+  const tenantRow = await prisma.tenant.findUnique({
+    where: { id: session.tenantId },
+    select: { settings: true },
+  });
+  const tenantTz = getTenantTimeZone(tenantRow?.settings);
+
   const listOrder = getModuleEntityListCreatedAtOrder(module_);
   const entities = await prisma.entity.findMany({
     where: {
@@ -67,12 +72,32 @@ export async function GET(
     select: { id: true, data: true, createdAt: true },
   });
 
-  const filtered = applyViewToEntities(
+  const afterView = applyViewToEntities(
     entities as { id: string; data: unknown; createdAt: Date }[],
     viewConfig
   );
-  const fieldSlugs = module_.fields.map((f) => f.slug);
-  const columnSlugs = getColumnOrder(viewConfig, fieldSlugs, APP_CONFIG.entityListMaxColumns);
+  const filtered = sortEntitiesWithOverdueDeadlineFirst(
+    afterView,
+    getModuleDeadlineFieldSortSpecs(module_.fields),
+    tenantTz
+  );
+  const listColumnFieldSlugs = fieldSlugsShownInEntityList(module_.fields);
+  const columnSlugs = getColumnOrder(viewConfig, listColumnFieldSlugs, APP_CONFIG.entityListMaxColumns);
+  const tenantUserSlugSet = new Set(
+    module_.fields.filter((f) => f.fieldType === "tenant-user").map((f) => f.slug)
+  );
+  const activitySlugSet = new Set(module_.fields.filter((f) => f.fieldType === "activity").map((f) => f.slug));
+  const needsTenantUserExport = columnSlugs.some((s) => tenantUserSlugSet.has(s));
+  const tenantUserLabels = needsTenantUserExport
+    ? Object.fromEntries(
+        (
+          await prisma.user.findMany({
+            where: { tenantId: session.tenantId, isActive: true },
+            select: { id: true, name: true, email: true },
+          })
+        ).map((u) => [u.id, formatTenantUserOptionLabel(u)])
+      )
+    : null;
   const headerSlugs = ["id", "createdAt", ...columnSlugs];
   const header = headerSlugs.map(csvEscape).join(",") + "\n";
   const rows = filtered.map((e) => {
@@ -83,6 +108,10 @@ export async function GET(
       ...columnSlugs.map((slug) => {
         const v = data[slug];
         if (v == null) return "";
+        if (activitySlugSet.has(slug)) return "";
+        if (tenantUserSlugSet.has(slug) && typeof v === "string" && tenantUserLabels?.[v]) {
+          return tenantUserLabels[v];
+        }
         if (typeof v === "object") return JSON.stringify(v);
         return String(v);
       }),

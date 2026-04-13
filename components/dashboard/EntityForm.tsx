@@ -2,6 +2,8 @@
 
 import { useActionState, useState, useRef, useEffect } from "react";
 import { BlobUploadInput } from "@/components/dashboard/BlobUploadInput";
+import { extractYyyyMmDdFromStoredValue, formatDateTime } from "@/lib/format";
+import { getActivityPreviewLimit } from "@/lib/activity-field";
 
 type Field = {
   id: string;
@@ -15,6 +17,14 @@ type Field = {
 type ActionResult = (prev: unknown, formData: FormData) => Promise<unknown>;
 
 export type RelationOption = { id: string; label: string };
+
+/** Serialized for the entity form; recent audit rows for `activity` fields. */
+export type EntityActivityPreviewRow = {
+  id: string;
+  eventType: string;
+  createdAt: string;
+  actorLabel: string;
+};
 
 function RelationMultiCombobox({
   fieldSlug,
@@ -220,6 +230,8 @@ export function EntityForm({
   initialData,
   entityId,
   relationOptions = {},
+  tenantUserOptions = [],
+  entityActivityRows = [],
   modulePaymentType = null,
   entityPaymentType = null,
   priceCents = null,
@@ -233,6 +245,10 @@ export function EntityForm({
   initialData: Record<string, unknown>;
   entityId?: string;
   relationOptions?: Record<string, RelationOption[]>;
+  /** Options for every `tenant-user` field (workspace team members). */
+  tenantUserOptions?: RelationOption[];
+  /** Recent events for read-only `activity` fields (edit page only). */
+  entityActivityRows?: EntityActivityPreviewRow[];
   /** When set, show "Payment for this record" override (use module default / none / payment / donation). */
   modulePaymentType?: "payment" | "donation" | null;
   entityPaymentType?: "payment" | "donation" | "none" | null;
@@ -268,12 +284,14 @@ export function EntityForm({
         <div key={field.id} className="form-group">
           <label htmlFor={field.slug}>
             {field.name}
-            {field.isRequired && " *"}
+            {field.isRequired && field.fieldType !== "activity" && " *"}
           </label>
           <FieldInput
             field={field}
             defaultValue={initialData[field.slug]}
             relationOptions={relationOptions[field.slug]}
+            tenantUserOptions={tenantUserOptions}
+            entityActivityRows={entityActivityRows}
             entityId={entityId}
           />
         </div>
@@ -348,11 +366,15 @@ function FieldInput({
   field,
   defaultValue,
   relationOptions = [],
+  tenantUserOptions = [],
+  entityActivityRows = [],
   entityId,
 }: {
   field: Field;
   defaultValue: unknown;
   relationOptions?: RelationOption[];
+  tenantUserOptions?: RelationOption[];
+  entityActivityRows?: EntityActivityPreviewRow[];
   entityId?: string;
 }) {
   const id = field.slug;
@@ -367,6 +389,43 @@ function FieldInput({
       : [];
 
   switch (field.fieldType) {
+    case "activity": {
+      const limit = getActivityPreviewLimit(field.settings);
+      const rows = entityActivityRows.slice(0, limit);
+      return (
+        <div
+          id={id}
+          className="entity-activity-field-preview"
+          style={{
+            padding: "0.65rem 0.75rem",
+            border: "1px solid #e2e8f0",
+            borderRadius: "6px",
+            background: "#f8fafc",
+            fontSize: "0.875rem",
+          }}
+        >
+          {!entityId ? (
+            <p style={{ margin: 0, color: "#64748b" }}>
+              Activity will appear here after you save the new record.
+            </p>
+          ) : rows.length === 0 ? (
+            <p style={{ margin: 0, color: "#64748b" }}>No activity yet.</p>
+          ) : (
+            <ul style={{ margin: 0, paddingLeft: "1.1rem", listStyleType: "disc" }}>
+              {rows.map((ev) => (
+                <li key={ev.id} style={{ marginBottom: "0.35rem" }}>
+                  <strong>{ev.eventType.replace(/_/g, " ")}</strong>
+                  <span style={{ color: "#64748b" }}> · {ev.actorLabel}</span>
+                  <span style={{ color: "#94a3b8", marginLeft: "0.35rem" }}>
+                    {formatDateTime(ev.createdAt)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      );
+    }
     case "relation":
       return (
         <select id={id} name={field.slug} defaultValue={str} required={field.isRequired}>
@@ -405,16 +464,18 @@ function FieldInput({
           required={field.isRequired}
         />
       );
-    case "date":
+    case "date": {
+      const dateInputValue = extractYyyyMmDdFromStoredValue(defaultValue);
       return (
         <input
           type="date"
           id={id}
           name={field.slug}
-          defaultValue={str}
+          defaultValue={dateInputValue}
           required={field.isRequired}
         />
       );
+    }
     case "select":
       return (
         <select id={id} name={field.slug} defaultValue={str} required={field.isRequired}>
@@ -422,6 +483,17 @@ function FieldInput({
           {options.map((opt) => (
             <option key={opt} value={opt}>
               {opt}
+            </option>
+          ))}
+        </select>
+      );
+    case "tenant-user":
+      return (
+        <select id={id} name={field.slug} defaultValue={str} required={field.isRequired}>
+          <option value="">Select…</option>
+          {tenantUserOptions.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {opt.label}
             </option>
           ))}
         </select>

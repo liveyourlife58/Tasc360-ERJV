@@ -14,6 +14,7 @@ import {
 import { AddToCartButton } from "@/components/site/AddToCartButton";
 import { FeedDiscovery } from "@/components/site/FeedDiscovery";
 import { formatDateIfApplicable, getTenantLocale } from "@/lib/format";
+import { getTenantTimeZone } from "@/lib/tenant-timezone";
 
 const SITE_LIST_PAGE_SIZE = 24;
 
@@ -125,6 +126,7 @@ export default async function SiteModuleListPage({
     take: SITE_LIST_PAGE_SIZE,
   });
   const locale = getTenantLocale(tenant.settings);
+  const timeZone = getTenantTimeZone(tenant.settings);
 
   const columns = module_.fields.slice(0, 6);
   const showAmountColumn = getModulePaymentType(module_) != null;
@@ -245,10 +247,10 @@ export default async function SiteModuleListPage({
                       <td key={f.id}>
                         {f.slug === (module_.fields[0]?.slug ?? "name") ? (
                           <Link href={`/s/${slug}/${segment}/${entity.id}`} className="site-entity-list-title-cell">
-                            {formatCellValue(data[f.slug], f.fieldType, locale) || title}
+                            {formatCellValue(data[f.slug], f.fieldType, locale, timeZone) || title}
                           </Link>
                         ) : (
-                          formatCellValue(data[f.slug], f.fieldType, locale)
+                          formatCellValue(data[f.slug], f.fieldType, locale, timeZone)
                         )}
                       </td>
                     ))}
@@ -310,19 +312,24 @@ function formatAmount(cents: number, locale?: string): string {
   }).format(cents / 100);
 }
 
-function formatValue(value: unknown, fieldType: string, locale?: string): string {
+function formatValue(value: unknown, fieldType: string, locale?: string, timeZone?: string): string {
   if (value == null) return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  const dateStr = formatDateIfApplicable(value, fieldType, locale);
+  const dateStr = formatDateIfApplicable(value, fieldType, locale, timeZone);
   if (dateStr !== null && dateStr !== "") return dateStr;
   return String(value).slice(0, 40);
 }
 
-function formatCellValue(value: unknown, fieldType: string, locale?: string): React.ReactNode {
+function formatCellValue(
+  value: unknown,
+  fieldType: string,
+  locale?: string,
+  timeZone?: string
+): React.ReactNode {
   if (fieldType === "file" && typeof value === "string" && value.trim() !== "") {
     const url = value.trim();
     if (url.startsWith("http") || url.startsWith("//"))
       return <img src={url} alt="" className="entity-list-cell-image" />;
   }
-  return formatValue(value, fieldType, locale);
+  return formatValue(value, fieldType, locale, timeZone);
 }

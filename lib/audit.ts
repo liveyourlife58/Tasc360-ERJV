@@ -50,12 +50,20 @@ export async function logAuditEvent(
   }
 }
 
+/** Optional before/after map for entity data / metadata (dashboard and API single-entity updates). */
+export type ApiEntityEventFieldChanges = Record<string, { before: unknown; after: unknown }>;
+
 /** Log entity mutation from the API (create/update/delete). Uses Event table with source "api". */
 export async function logApiEntityEvent(
   tenantId: string,
   eventType: "entity_created" | "entity_updated" | "entity_deleted",
   entityId: string,
-  meta: { moduleSlug?: string; apiKeyPrefix?: string }
+  meta: {
+    moduleSlug?: string;
+    apiKeyPrefix?: string;
+    fieldChanges?: ApiEntityEventFieldChanges;
+    metadataChanges?: ApiEntityEventFieldChanges;
+  }
 ): Promise<void> {
   await logAuditEvent(
     tenantId,

@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { labelFromTargetEntityData, resolveRelationDisplayFieldSlug } from "./relation-display";
+import { loadActivitySummariesForEntities } from "./activity-field";
 
 /** When true on a relation field, target-module entity pages list source records that link here (via that field). */
 export const RELATION_SHOW_BACKLINKS_ON_TARGET_KEY = "showBacklinksOnTarget";
@@ -8,6 +9,8 @@ export type InverseBacklinkEntity = {
   id: string;
   data: Record<string, unknown>;
   createdAt: Date;
+  /** Populated for `activity` fields: slug → multi-line summary for list/detail cards. */
+  activitySummaries?: Record<string, string>;
 };
 
 export type InverseBacklinkSection = {
@@ -15,7 +18,7 @@ export type InverseBacklinkSection = {
   sourceModuleName: string;
   fieldSlug: string;
   fieldName: string;
-  sourceFields: { slug: string; name: string; fieldType: string }[];
+  sourceFields: { slug: string; name: string; fieldType: string; settings?: unknown }[];
   entities: InverseBacklinkEntity[];
 };
 
@@ -24,10 +27,18 @@ type Candidate = {
   fieldName: string;
   sourceModuleSlug: string;
   sourceModuleName: string;
-  sourceFields: { slug: string; name: string; fieldType: string }[];
+  sourceFields: { slug: string; name: string; fieldType: string; settings?: unknown }[];
 };
 
-const DISPLAY_FIELD_TYPES = new Set(["text", "number", "date", "boolean", "select"]);
+const DISPLAY_FIELD_TYPES = new Set([
+  "text",
+  "number",
+  "date",
+  "boolean",
+  "select",
+  "tenant-user",
+  "activity",
+]);
 
 /** Short string for a single data value on the entity detail expansion. */
 export function formatBacklinkFieldValue(val: unknown): string {
@@ -40,13 +51,13 @@ export function formatBacklinkFieldValue(val: unknown): string {
 }
 
 export function sourceFieldsForBacklinkGrid(
-  fields: { slug: string; name: string; fieldType: string }[],
+  fields: { slug: string; name: string; fieldType: string; settings?: unknown }[],
   max = 8
-): { slug: string; name: string }[] {
+): { slug: string; name: string; fieldType: string }[] {
   return fields
     .filter((f) => DISPLAY_FIELD_TYPES.has(f.fieldType))
     .slice(0, max)
-    .map((f) => ({ slug: f.slug, name: f.name }));
+    .map((f) => ({ slug: f.slug, name: f.name, fieldType: f.fieldType }));
 }
 
 async function loadInverseBacklinkCandidates(tenantId: string, targetModuleSlug: string): Promise<Candidate[]> {
@@ -68,11 +79,50 @@ async function loadInverseBacklinkCandidates(tenantId: string, targetModuleSlug:
         fieldName: f.name,
         sourceModuleSlug: m.slug,
         sourceModuleName: m.name,
-        sourceFields: m.fields.map((x) => ({ slug: x.slug, name: x.name, fieldType: x.fieldType })),
+        sourceFields: m.fields.map((x) => ({
+          slug: x.slug,
+          name: x.name,
+          fieldType: x.fieldType,
+          settings: x.settings ?? undefined,
+        })),
       });
     }
   }
   return candidates;
+}
+
+async function enrichInverseBacklinkSectionsWithActivity(
+  tenantId: string,
+  sections: InverseBacklinkSection[]
+): Promise<void> {
+  if (sections.length === 0) return;
+  const activityFieldDefs: { slug: string; settings: unknown }[] = [];
+  const seenSlug = new Set<string>();
+  for (const sec of sections) {
+    for (const f of sec.sourceFields) {
+      if (f.fieldType !== "activity" || seenSlug.has(f.slug)) continue;
+      seenSlug.add(f.slug);
+      activityFieldDefs.push({ slug: f.slug, settings: f.settings });
+    }
+  }
+  if (activityFieldDefs.length === 0) return;
+
+  const uniqueEntityIds = [...new Set(sections.flatMap((s) => s.entities.map((e) => e.id)))];
+  const summaries = await loadActivitySummariesForEntities(tenantId, uniqueEntityIds, activityFieldDefs);
+
+  for (const sec of sections) {
+    for (const ent of sec.entities) {
+      const row = summaries.get(ent.id);
+      if (!row) continue;
+      const next: Record<string, string> = { ...(ent.activitySummaries ?? {}) };
+      for (const f of sec.sourceFields) {
+        if (f.fieldType !== "activity") continue;
+        const t = row[f.slug];
+        if (typeof t === "string") next[f.slug] = t;
+      }
+      ent.activitySummaries = next;
+    }
+  }
 }
 
 function buildSectionsForTarget(
@@ -153,7 +203,10 @@ export async function getInverseBacklinksByTargetEntityIds(
   for (const targetId of targetEntityIds) {
     const byField = grouped.get(targetId)!;
     const sections = buildSectionsForTarget(candidates, byField);
-    if (sections.length > 0) out[targetId] = sections;
+    if (sections.length > 0) {
+      await enrichInverseBacklinkSectionsWithActivity(tenantId, sections);
+      out[targetId] = sections;
+    }
   }
 
   return out;
@@ -174,7 +227,7 @@ export async function getInverseRelationBacklinkSections(
 
 export function backlinkEntityTitle(
   entity: InverseBacklinkEntity,
-  sourceFields: { slug: string; name: string; fieldType: string }[]
+  sourceFields: { slug: string; name: string; fieldType: string; settings?: unknown }[]
 ): string {
   const displaySlug = resolveRelationDisplayFieldSlug(
     undefined,

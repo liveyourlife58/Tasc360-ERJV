@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { sqlEntityDataKeyHasMeaningfulValue } from "@/lib/entity-data-field-measure";
 import {
   addFieldToModule,
   removeFieldFromModule,
@@ -43,7 +44,7 @@ export default async function ModuleFieldsPage({
   await Promise.all(
     module_.fields.map(async (f) => {
       const rows = await prisma.$queryRaw<[{ count: bigint }]>(
-        Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND (data ? ${f.slug})`
+        Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND ${sqlEntityDataKeyHasMeaningfulValue(f.slug)}`
       );
       recordCountByFieldId.set(f.id, Number(rows[0]?.count ?? 0));
     })
@@ -58,7 +59,7 @@ export default async function ModuleFieldsPage({
         </Link>
       </div>
       <p className="settings-intro" style={{ marginBottom: "1.5rem" }}>
-        Add, reorder, or remove fields. You cannot remove a field if any record has a value for it.
+        Add, reorder, or remove fields. You cannot remove a field while any record still has a non-empty value for it (cleared selects and blank values no longer block removal). To change a field type or remove it when data blocks you, update records individually or ask a platform administrator for help.
       </p>
 
       <section style={{ marginBottom: "2rem" }}>

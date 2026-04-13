@@ -7,7 +7,9 @@ import { getIdempotentResponse, setIdempotentResponse } from "@/lib/idempotency"
 import { apiError, withRateLimitHeaders } from "@/lib/api-response";
 import { ERROR_CODES } from "@/lib/errors";
 import { validateEntityData } from "@/lib/api-entity-validation";
+import { stripActivityFieldValues } from "@/lib/activity-field";
 import { logApiEntityEvent } from "@/lib/audit";
+import { computeShallowFieldChanges } from "@/lib/entity-event-field-changes";
 
 export async function GET(
   request: Request,
@@ -104,11 +106,22 @@ export async function PATCH(
       rate
     );
   }
+  const { validateTenantUserFieldValues } = await import("@/lib/tenant-user-field");
+  const tuPatch = await validateTenantUserFieldValues(prisma, tenantId, module_.fields, data);
+  if (!tuPatch.ok) {
+    return withRateLimitHeaders(
+      apiError(ERROR_CODES.VALIDATION_ERROR, 400, tuPatch.message),
+      rate
+    );
+  }
+  stripActivityFieldValues(data, module_.fields);
   const current = await prisma.entity.findUnique({
     where: { id: entityId },
     select: { data: true },
   });
-  const merged = { ...((current?.data as Record<string, unknown>) ?? {}), ...data };
+  const oldData = (current?.data as Record<string, unknown>) ?? {};
+  const merged = { ...oldData, ...data };
+  const fieldChanges = computeShallowFieldChanges(oldData, merged);
   const { buildSearchText } = await import("@/lib/search-text");
   const searchText = buildSearchText(module_.name, merged) || null;
   const entity = await prisma.entity.update({
@@ -116,7 +129,11 @@ export async function PATCH(
     data: { data: merged as object, searchText },
   });
   const apiKeyPrefix = (request.headers.get("x-api-key") ?? "").slice(0, 12) || undefined;
-  logApiEntityEvent(tenantId, "entity_updated", entityId, { moduleSlug, apiKeyPrefix }).catch(() => {});
+  logApiEntityEvent(tenantId, "entity_updated", entityId, {
+    moduleSlug,
+    apiKeyPrefix,
+    ...(Object.keys(fieldChanges).length > 0 ? { fieldChanges } : {}),
+  }).catch(() => {});
   const payload = { id: entity.id, data: entity.data, updatedAt: entity.updatedAt };
   const statusCode = 200;
   if (idempotencyKey) {

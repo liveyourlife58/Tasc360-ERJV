@@ -20,6 +20,7 @@ import {
 } from "../../../actions";
 import { SuccessBanner } from "@/components/dashboard/SuccessBanner";
 import { SettingsSectionCards } from "@/app/dashboard/settings/SettingsSectionCards";
+import { getTenantTimeZone } from "@/lib/tenant-timezone";
 
 export default async function PlatformTenantDetailPage({
   params,
@@ -150,6 +151,7 @@ export default async function PlatformTenantDetailPage({
   const currentEmailFromName = (settingsObj.emailFromName as string) ?? "";
   const currentEmailReplyTo = (settingsObj.emailReplyTo as string) ?? "";
   const currentLocale = (settingsObj.locale as string) ?? "";
+  const currentTimeZone = getTenantTimeZone(tenant.settings ?? null);
   const featureFlags = getFeatureFlags(tenant.settings ?? null);
   const dashboardFeatures = getDashboardFeatures(tenant.settings ?? null);
   const apiKeys = await listApiKeys(tenantId);
@@ -244,6 +246,7 @@ export default async function PlatformTenantDetailPage({
         currentEmailFromName={currentEmailFromName}
         currentEmailReplyTo={currentEmailReplyTo}
         currentLocale={currentLocale}
+        currentTimeZone={currentTimeZone}
         featureFlags={featureFlags}
         dashboardFeatures={dashboardFeatures}
         apiKeys={apiKeys}

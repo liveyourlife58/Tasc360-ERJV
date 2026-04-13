@@ -20,5 +20,7 @@ export function labelFromTargetEntityData(
   if (s) return s;
   const name = String(data.name ?? "").trim();
   if (name) return name;
+  const title = String(data.title ?? "").trim();
+  if (title) return title;
   return entityId.slice(0, 8);
 }

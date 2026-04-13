@@ -4,7 +4,7 @@ import { useState } from "react";
 import { getRelationEntityData } from "@/app/dashboard/actions";
 import { formatDate } from "@/lib/format";
 
-type Field = { slug: string; name: string };
+type Field = { slug: string; name: string; fieldType: string; settings?: unknown };
 
 export function RelationMultiCell({
   entityIds,
@@ -23,6 +23,7 @@ export function RelationMultiCell({
   const [data, setData] = useState<{
     entities: { id: string; data: Record<string, unknown> }[];
     fields: Field[];
+    activityByEntityId?: Record<string, Record<string, string>>;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +42,8 @@ export function RelationMultiCell({
       setData({
         entities: result.entities ?? [],
         fields: result.fields ?? [],
+        activityByEntityId: (result as { activityByEntityId?: Record<string, Record<string, string>> })
+          .activityByEntityId,
       });
     } finally {
       setLoading(false);
@@ -170,9 +173,12 @@ export function RelationMultiCell({
                               padding: "0.5rem 0.75rem",
                               borderBottom: "1px solid #f1f5f9",
                               fontSize: "0.875rem",
+                              whiteSpace: f.fieldType === "activity" ? "pre-wrap" : undefined,
                             }}
                           >
-                            {formatCell(entity.data[f.slug])}
+                            {f.fieldType === "activity"
+                              ? (data.activityByEntityId?.[entity.id]?.[f.slug] ?? "—")
+                              : formatCell(entity.data[f.slug])}
                           </td>
                         ))}
                       </tr>

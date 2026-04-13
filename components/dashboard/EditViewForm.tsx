@@ -38,10 +38,13 @@ function parseBoardLaneSource(v: string | undefined | null): BoardLaneSource {
 function orderedLaneValuesForField(
   fieldSlug: string,
   selectMeta: { slug: string; options: string[] }[],
-  relationMeta: { slug: string; options: { id: string; label: string }[] }[]
+  relationMeta: { slug: string; options: { id: string; label: string }[] }[],
+  tenantUserMeta: { slug: string; options: { id: string; label: string }[] }[]
 ): string[] {
   const rel = relationMeta.find((m) => m.slug === fieldSlug);
   if (rel) return rel.options.map((o) => o.id);
+  const tu = tenantUserMeta.find((m) => m.slug === fieldSlug);
+  if (tu) return tu.options.map((o) => o.id);
   const sel = selectMeta.find((m) => m.slug === fieldSlug);
   if (sel) return sel.options;
   return [];
@@ -71,6 +74,8 @@ export function EditViewForm({
   selectFieldsMeta = [],
   relationFieldSlugs = [],
   relationFieldsMeta = [],
+  tenantUserFieldSlugs = [],
+  tenantUserFieldsMeta = [],
   dateFieldSlugs,
   action,
   deleteAction,
@@ -93,6 +98,8 @@ export function EditViewForm({
   relationFieldSlugs?: string[];
   /** Single relation fields with loaded target rows (ids + labels). */
   relationFieldsMeta?: { slug: string; name: string; options: { id: string; label: string }[] }[];
+  tenantUserFieldSlugs?: string[];
+  tenantUserFieldsMeta?: { slug: string; name: string; options: { id: string; label: string }[] }[];
   dateFieldSlugs: string[];
   action: (prev: unknown, formData: FormData) => Promise<unknown>;
   deleteAction: (prev: unknown, formData: FormData) => Promise<unknown>;
@@ -113,19 +120,27 @@ export function EditViewForm({
   const [customPicked, setCustomPicked] = useState<string[]>(() =>
     filterPickedToAllowedOrder(
       initialBoardLaneValues ?? undefined,
-      orderedLaneValuesForField(initialBoardColumnField ?? "", selectFieldsMeta, relationFieldsMeta)
+      orderedLaneValuesForField(
+        initialBoardColumnField ?? "",
+        selectFieldsMeta,
+        relationFieldsMeta,
+        tenantUserFieldsMeta
+      )
     )
   );
 
   const laneOptions = useMemo((): { value: string; label: string }[] => {
     const rel = relationFieldsMeta.find((m) => m.slug === boardFieldSt);
     if (rel) return rel.options.map((o) => ({ value: o.id, label: o.label }));
+    const tu = tenantUserFieldsMeta.find((m) => m.slug === boardFieldSt);
+    if (tu) return tu.options.map((o) => ({ value: o.id, label: o.label }));
     const sel = selectFieldsMeta.find((m) => m.slug === boardFieldSt);
     if (sel) return sel.options.map((o) => ({ value: o, label: o }));
     return [];
-  }, [selectFieldsMeta, relationFieldsMeta, boardFieldSt]);
+  }, [selectFieldsMeta, relationFieldsMeta, tenantUserFieldsMeta, boardFieldSt]);
 
   const boardFieldIsRelation = relationFieldSlugs.includes(boardFieldSt);
+  const boardFieldIsTenantUser = tenantUserFieldSlugs.includes(boardFieldSt);
 
   const moveCustomPicked = useCallback((index: number, dir: -1 | 1) => {
     setCustomPicked((prev) => {
@@ -205,9 +220,11 @@ export function EditViewForm({
             <option value="board">Board (Kanban)</option>
             <option value="calendar">Calendar</option>
           </select>
-          <span className="form-hint">Board groups by a select field or a single relation; calendar shows entities by a date field.</span>
+          <span className="form-hint">
+            Board groups by a select field, a team user field, or a single relation; calendar shows entities by a date field.
+          </span>
         </div>
-        {(selectFieldSlugs.length > 0 || relationFieldSlugs.length > 0) && (
+        {(selectFieldSlugs.length > 0 || relationFieldSlugs.length > 0 || tenantUserFieldSlugs.length > 0) && (
           <div className="form-group">
             <label htmlFor="boardColumnField">Board column field (for Kanban)</label>
             <select
@@ -246,6 +263,18 @@ export function EditViewForm({
                   })}
                 </optgroup>
               )}
+              {tenantUserFieldSlugs.length > 0 && (
+                <optgroup label="Team user fields">
+                  {tenantUserFieldSlugs.map((s) => {
+                    const name = tenantUserFieldsMeta.find((m) => m.slug === s)?.name ?? s;
+                    return (
+                      <option key={`tu:${s}`} value={s}>
+                        {name} ({s})
+                      </option>
+                    );
+                  })}
+                </optgroup>
+              )}
             </select>
           </div>
         )}
@@ -259,7 +288,9 @@ export function EditViewForm({
               <p style={{ margin: 0, fontSize: "0.875rem", color: "#64748b" }}>
                 {boardFieldIsRelation
                   ? "No related records in the loaded list (up to 200 per target module). Columns follow values that appear on records."
-                  : "This field has no select options defined. Columns are derived from values that appear on records."}
+                  : boardFieldIsTenantUser
+                    ? "No active team members in this workspace. Columns follow values that appear on records."
+                    : "This field has no select options defined. Columns are derived from values that appear on records."}
               </p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
@@ -281,7 +312,9 @@ export function EditViewForm({
                   />
                   {boardFieldIsRelation
                     ? "Always show every related record in the loaded list (up to 200; empty lanes stay visible)"
-                    : "Always show every select option (empty lanes stay visible)"}
+                    : boardFieldIsTenantUser
+                      ? "Always show every active team member (empty lanes stay visible)"
+                      : "Always show every select option (empty lanes stay visible)"}
                 </label>
                 <label className="subscription-check-label" style={{ fontWeight: 400 }}>
                   <input
@@ -298,7 +331,9 @@ export function EditViewForm({
                   />
                   {boardFieldIsRelation
                     ? "Choose which related records appear as columns — order is the list below (reorder with ↑ ↓)"
-                    : "Choose which options appear as columns — order is the list below (reorder with ↑ ↓)"}
+                    : boardFieldIsTenantUser
+                      ? "Choose which team members appear as columns — order is the list below (reorder with ↑ ↓)"
+                      : "Choose which options appear as columns — order is the list below (reorder with ↑ ↓)"}
                 </label>
                 {laneSourceSt === "custom" && (
                   <div

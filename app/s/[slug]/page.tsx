@@ -6,7 +6,8 @@ import type { Metadata } from "next";
 import { getTenantBySlug, getPublicModulesFromSettings, getPublicModuleBySegment } from "@/lib/tenant";
 import { getSiteMeta, getCanonicalUrl } from "@/lib/site-seo";
 import { prisma } from "@/lib/prisma";
-import { formatDateIfApplicable } from "@/lib/format";
+import { formatDateIfApplicable, getTenantLocale } from "@/lib/format";
+import { getTenantTimeZone } from "@/lib/tenant-timezone";
 
 export async function generateMetadata({
   params,
@@ -84,6 +85,8 @@ export default async function SiteHomePage({
   };
 
   const hasSidebar = sidebarModule != null;
+  const siteLocale = getTenantLocale(tenant.settings);
+  const siteTimeZone = getTenantTimeZone(tenant.settings);
 
   return (
     <div className={hasSidebar ? "site-home site-home-with-sidebar" : "site-home"}>
@@ -146,7 +149,9 @@ export default async function SiteHomePage({
                           {displayFields.map((f) => (
                             <div key={f.id}>
                               <dt>{f.name}</dt>
-                              <dd>{formatSidebarCellValue(data[f.slug], f.fieldType)}</dd>
+                              <dd>
+                                {formatSidebarCellValue(data[f.slug], f.fieldType, siteLocale, siteTimeZone)}
+                              </dd>
                             </div>
                           ))}
                         </dl>
@@ -182,7 +187,12 @@ function getSidebarCardTitle(
   return s && !s.startsWith("http") && !s.startsWith("//") ? s : "Untitled";
 }
 
-function formatSidebarCellValue(value: unknown, fieldType: string): ReactNode {
+function formatSidebarCellValue(
+  value: unknown,
+  fieldType: string,
+  locale?: string,
+  timeZone?: string
+): ReactNode {
   if (fieldType === "file" && typeof value === "string" && value.trim() !== "") {
     const url = value.trim();
     if (url.startsWith("http") || url.startsWith("//"))
@@ -190,7 +200,7 @@ function formatSidebarCellValue(value: unknown, fieldType: string): ReactNode {
   }
   if (value == null) return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  const dateStr = formatDateIfApplicable(value, fieldType);
+  const dateStr = formatDateIfApplicable(value, fieldType, locale, timeZone);
   if (dateStr !== null) return dateStr;
   return String(value).slice(0, 80);
 }

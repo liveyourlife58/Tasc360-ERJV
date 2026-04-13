@@ -98,6 +98,8 @@ function PublicFieldInput({ field }: { field: Field }) {
         />
       );
     case "relation":
+    case "tenant-user":
+    case "activity":
       return null;
     case "text":
     default:

@@ -59,12 +59,23 @@ export function InverseRelationBacklinks({
                 const rows = gridFields
                   .map((f) => {
                     const raw = ent.data[f.slug];
-                    const shown = formatBacklinkFieldValue(raw);
+                    const shown =
+                      f.fieldType === "activity"
+                        ? (ent.activitySummaries?.[f.slug] ?? "—")
+                        : formatBacklinkFieldValue(raw);
                     if (!shown || shown === "—") return null;
                     return (
                       <div key={f.slug} style={{ display: "contents" }}>
                         <dt style={{ color: "#64748b", margin: 0 }}>{f.name}</dt>
-                        <dd style={{ margin: 0, wordBreak: "break-word" }}>{shown}</dd>
+                        <dd
+                          style={{
+                            margin: 0,
+                            wordBreak: "break-word",
+                            whiteSpace: f.fieldType === "activity" ? "pre-wrap" : undefined,
+                          }}
+                        >
+                          {shown}
+                        </dd>
                       </div>
                     );
                   })

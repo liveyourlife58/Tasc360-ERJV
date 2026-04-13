@@ -13,12 +13,18 @@ import { updateView, deleteViewFormAction, updateEntitySingleField, setModuleDef
 import { APP_CONFIG } from "@/lib/app-config";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { applyViewToEntities, filterEntitiesByKeyword, getColumnOrder } from "@/lib/view-utils";
+import { getModuleDeadlineFieldSortSpecs, sortEntitiesWithOverdueDeadlineFirst } from "@/lib/deadline-field";
+import { getTenantTimeZone } from "@/lib/tenant-timezone";
+import { getTenantLocale } from "@/lib/format";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { isPlatformAdmin } from "@/lib/developer-setup";
 import { buildRelationLabelMaps, getRelationOptions } from "@/lib/relation-options";
 import { ModuleListSearchBar } from "@/components/dashboard/ModuleListSearchBar";
 import { getModuleEntityListCreatedAtOrder } from "@/lib/module-settings";
 import { getInverseBacklinksByTargetEntityIds } from "@/lib/inverse-relation-backlinks";
+import { fieldSlugsShownInEntityList } from "@/lib/field-entity-list";
+import { formatTenantUserOptionLabel } from "@/lib/tenant-user-field";
+import { loadActivitySummariesForEntities } from "@/lib/activity-field";
 
 export default async function ModuleEntityListPage({
   params,
@@ -107,7 +113,13 @@ export default async function ModuleEntityListPage({
     entities as { id: string; data: unknown; createdAt?: Date }[],
     viewConfig
   );
-  const filteredEntities = filterEntitiesByKeyword(afterView, searchQuery);
+  const deadlineSortSpecs = getModuleDeadlineFieldSortSpecs(module_.fields);
+  const tenantTz = getTenantTimeZone(tenant?.settings);
+  const filteredEntities = sortEntitiesWithOverdueDeadlineFirst(
+    filterEntitiesByKeyword(afterView, searchQuery),
+    deadlineSortSpecs,
+    tenantTz
+  );
   const totalCount = filteredEntities.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -117,7 +129,8 @@ export default async function ModuleEntityListPage({
   const viewType =
     viewRow?.viewType === "board" || viewRow?.viewType === "calendar" ? viewRow.viewType : "list";
 
-  const [relationLabels, relationOptionsMap, inverseBacklinksByEntityId] = await Promise.all([
+  const needsTenantUsers = module_.fields.some((f) => f.fieldType === "tenant-user");
+  const [relationLabels, relationOptionsMap, inverseBacklinksByEntityId, tenantUsers] = await Promise.all([
     buildRelationLabelMaps(tenantId, module_.fields, paginatedEntities),
     getRelationOptions(tenantId, module_.fields),
     !isDeletedView && viewType === "list"
@@ -127,11 +140,48 @@ export default async function ModuleEntityListPage({
           paginatedEntities.map((e) => e.id)
         )
       : Promise.resolve({} as Awaited<ReturnType<typeof getInverseBacklinksByTargetEntityIds>>),
+    needsTenantUsers
+      ? prisma.user.findMany({
+          where: { tenantId, isActive: true },
+          select: { id: true, name: true, email: true },
+          orderBy: { email: "asc" },
+        })
+      : Promise.resolve([] as { id: string; name: string | null; email: string }[]),
   ]);
+  const tenantUserLabels: Record<string, string> = Object.fromEntries(
+    tenantUsers.map((u) => [u.id, formatTenantUserOptionLabel(u)])
+  );
+  const tenantUserOptionsForMeta = tenantUsers.map((u) => ({
+    id: u.id,
+    label: formatTenantUserOptionLabel(u),
+  }));
 
   const fieldSlugs = module_.fields.map((f) => f.slug);
-  const columnSlugs = getColumnOrder(viewConfig, fieldSlugs, APP_CONFIG.entityListMaxColumns);
+  const listColumnFieldSlugs = fieldSlugsShownInEntityList(module_.fields);
+  const columnSlugs = getColumnOrder(viewConfig, listColumnFieldSlugs, APP_CONFIG.entityListMaxColumns);
+  const activityFieldsInListColumns = module_.fields.filter(
+    (f) => f.fieldType === "activity" && columnSlugs.includes(f.slug)
+  );
+  let activityCellSummaries: Record<string, Record<string, string>> = {};
+  if (
+    !isDeletedView &&
+    viewType === "list" &&
+    activityFieldsInListColumns.length > 0 &&
+    paginatedEntities.length > 0
+  ) {
+    const activityMap = await loadActivitySummariesForEntities(
+      tenantId,
+      paginatedEntities.map((e) => e.id),
+      activityFieldsInListColumns.map((f) => ({ slug: f.slug, settings: f.settings }))
+    );
+    activityCellSummaries = Object.fromEntries(activityMap);
+  }
   const selectFieldSlugs = module_.fields.filter((f) => f.fieldType === "select").map((f) => f.slug);
+  const tenantUserFieldSlugs = module_.fields.filter((f) => f.fieldType === "tenant-user").map((f) => f.slug);
+  const tenantUserFieldsMeta = tenantUserFieldSlugs.map((slug) => {
+    const f = module_.fields.find((x) => x.slug === slug)!;
+    return { slug, name: f.name, options: tenantUserOptionsForMeta };
+  });
   const relationFieldSlugs = module_.fields.filter((f) => f.fieldType === "relation").map((f) => f.slug);
   const relationFieldsMeta = relationFieldSlugs.map((slug) => {
     const f = module_.fields.find((x) => x.slug === slug)!;
@@ -159,12 +209,17 @@ export default async function ModuleEntityListPage({
   }) ?? {};
   let boardColumnField =
     viewType === "board"
-      ? (viewSettings.boardColumnField ?? selectFieldSlugs[0] ?? relationFieldSlugs[0] ?? null)
+      ? (viewSettings.boardColumnField ??
+          selectFieldSlugs[0] ??
+          tenantUserFieldSlugs[0] ??
+          relationFieldSlugs[0] ??
+          null)
       : null;
   if (viewType === "board" && boardColumnField) {
     const bf = module_.fields.find((f) => f.slug === boardColumnField);
-    const ok = bf && (bf.fieldType === "select" || bf.fieldType === "relation");
-    if (!ok) boardColumnField = selectFieldSlugs[0] ?? relationFieldSlugs[0] ?? null;
+    const ok = bf && (bf.fieldType === "select" || bf.fieldType === "relation" || bf.fieldType === "tenant-user");
+    if (!ok)
+      boardColumnField = selectFieldSlugs[0] ?? tenantUserFieldSlugs[0] ?? relationFieldSlugs[0] ?? null;
   }
   const boardFieldDef =
     viewType === "board" && boardColumnField
@@ -173,14 +228,16 @@ export default async function ModuleEntityListPage({
   const boardOrderedDefinedValues: string[] =
     boardFieldDef?.fieldType === "relation"
       ? (relationOptionsMap[boardColumnField!] ?? []).map((o) => o.id)
-      : boardFieldDef?.fieldType === "select"
-        ? (() => {
-            const st = (boardFieldDef.settings as Record<string, unknown>) ?? {};
-            return Array.isArray(st.options)
-              ? (st.options as unknown[]).filter((x): x is string => typeof x === "string")
-              : [];
-          })()
-        : [];
+      : boardFieldDef?.fieldType === "tenant-user"
+        ? (tenantUserFieldsMeta.find((m) => m.slug === boardColumnField)?.options.map((o) => o.id) ?? [])
+        : boardFieldDef?.fieldType === "select"
+          ? (() => {
+              const st = (boardFieldDef.settings as Record<string, unknown>) ?? {};
+              return Array.isArray(st.options)
+                ? (st.options as unknown[]).filter((x): x is string => typeof x === "string")
+                : [];
+            })()
+          : [];
   let boardColumnLabels: Record<string, string> | undefined;
   if (boardFieldDef?.fieldType === "relation" && boardColumnField) {
     boardColumnLabels = {};
@@ -193,6 +250,8 @@ export default async function ModuleEntityListPage({
         if (!boardColumnLabels[id]) boardColumnLabels[id] = label;
       }
     }
+  } else if (boardFieldDef?.fieldType === "tenant-user" && boardColumnField) {
+    boardColumnLabels = { ...tenantUserLabels };
   }
   const boardLaneSource: BoardLaneSource =
     viewSettings.boardLaneSource === "all_options" || viewSettings.boardLaneSource === "custom"
@@ -230,6 +289,10 @@ export default async function ModuleEntityListPage({
     relationLabels,
     inverseBacklinksByEntityId:
       !isDeletedView && viewType === "list" ? inverseBacklinksByEntityId : undefined,
+    tenantLocale: getTenantLocale(tenant?.settings ?? null),
+    tenantTimeZone: tenantTz,
+    ...(needsTenantUsers ? { tenantUserLabels } : {}),
+    ...(activityFieldsInListColumns.length > 0 ? { activityCellSummaries } : {}),
   };
 
   return (
@@ -285,11 +348,13 @@ export default async function ModuleEntityListPage({
         currentViewId={viewId ?? null}
         defaultViewId={defaultViewId ?? null}
         setDefaultViewAction={setModuleDefaultView}
-        fieldSlugs={fieldSlugs}
+        fieldSlugs={listColumnFieldSlugs}
         selectFieldSlugs={selectFieldSlugs}
         selectFieldsMeta={selectFieldsMeta}
         relationFieldSlugs={relationFieldSlugs}
         relationFieldsMeta={relationFieldsMeta}
+        tenantUserFieldSlugs={tenantUserFieldSlugs}
+        tenantUserFieldsMeta={tenantUserFieldsMeta}
         dateFieldSlugs={dateFieldSlugs}
         updateViewAction={updateView}
         deleteViewAction={deleteViewFormAction}
@@ -298,7 +363,7 @@ export default async function ModuleEntityListPage({
           moduleId: module_.id,
           moduleSlug,
           moduleName: module_.name,
-          fieldSlugs,
+          fieldSlugs: listColumnFieldSlugs,
         }}
       />
         <ModuleListSearchBar

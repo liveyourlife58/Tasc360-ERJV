@@ -6,6 +6,7 @@ import { EntityForm } from "@/components/dashboard/EntityForm";
 import { createEntity } from "@/app/dashboard/actions";
 import { getRelationOptions } from "@/lib/relation-options";
 import { getModulePaymentType } from "@/lib/module-settings";
+import { formatTenantUserOptionLabel } from "@/lib/tenant-user-field";
 
 export default async function NewEntityPage({
   params,
@@ -23,7 +24,20 @@ export default async function NewEntityPage({
   });
   if (!module_) notFound();
 
-  const relationOptions = await getRelationOptions(tenantId, module_.fields);
+  const [relationOptions, tenantUsers] = await Promise.all([
+    getRelationOptions(tenantId, module_.fields),
+    module_.fields.some((f) => f.fieldType === "tenant-user")
+      ? prisma.user.findMany({
+          where: { tenantId, isActive: true },
+          select: { id: true, name: true, email: true },
+          orderBy: { email: "asc" },
+        })
+      : Promise.resolve([] as { id: string; name: string | null; email: string }[]),
+  ]);
+  const tenantUserOptions = tenantUsers.map((u) => ({
+    id: u.id,
+    label: formatTenantUserOptionLabel(u),
+  }));
   const modulePaymentType = getModulePaymentType(module_);
 
   return (
@@ -40,6 +54,7 @@ export default async function NewEntityPage({
         fields={module_.fields}
         initialData={{}}
         relationOptions={relationOptions}
+        tenantUserOptions={tenantUserOptions}
         modulePaymentType={modulePaymentType ?? undefined}
         action={createEntity.bind(null, { tenantId, moduleId: module_.id, createdBy: userId })}
       />

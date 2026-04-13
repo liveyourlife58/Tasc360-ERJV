@@ -14,6 +14,7 @@ import { AddToCartButton } from "@/components/site/AddToCartButton";
 import { JoinWaitlistForm } from "@/components/site/JoinWaitlistForm";
 import { ShareButton } from "@/components/site/ShareButton";
 import { formatDateIfApplicable, getTenantLocale } from "@/lib/format";
+import { getTenantTimeZone } from "@/lib/tenant-timezone";
 import { getEntityAvailabilityForSite } from "@/app/s/actions";
 
 export async function generateMetadata({
@@ -82,6 +83,7 @@ export default async function SiteModuleDetailPage({
 
   const data = (entity.data as Record<string, unknown>) ?? {};
   const locale = getTenantLocale(tenant.settings);
+  const timeZone = getTenantTimeZone(tenant.settings);
   const availability = await getEntityAvailabilityForSite(slug, entity.id);
   const effectiveType = getEffectivePaymentType(entity, module_);
   const priceCents = getEntityPriceCents(entity);
@@ -182,7 +184,7 @@ export default async function SiteModuleDetailPage({
           {module_.fields.map((f) => (
             <div key={f.id} className="site-detail-row">
               <dt>{f.name}</dt>
-              <dd>{formatDetailValue(data[f.slug], f.fieldType, locale)}</dd>
+              <dd>{formatDetailValue(data[f.slug], f.fieldType, locale, timeZone)}</dd>
             </div>
           ))}
         </dl>
@@ -231,10 +233,15 @@ function formatAmount(cents: number, locale?: string): string {
   }).format(cents / 100);
 }
 
-function formatDetailValue(value: unknown, fieldType: string, locale?: string): React.ReactNode {
+function formatDetailValue(
+  value: unknown,
+  fieldType: string,
+  locale?: string,
+  timeZone?: string
+): React.ReactNode {
   if (value == null) return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  const dateStr = formatDateIfApplicable(value, fieldType, locale);
+  const dateStr = formatDateIfApplicable(value, fieldType, locale, timeZone);
   if (dateStr !== null && dateStr !== "") return dateStr;
   if (fieldType === "json" && typeof value === "object")
     return <pre className="site-json">{JSON.stringify(value, null, 2)}</pre>;

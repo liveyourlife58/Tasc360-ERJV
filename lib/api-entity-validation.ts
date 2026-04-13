@@ -21,6 +21,7 @@ function typeMatches(fieldType: string, value: unknown, _settings?: unknown): bo
     case "boolean":
       return typeof value === "boolean";
     case "select":
+    case "tenant-user":
       return typeof value === "string";
     case "relation":
     case "file":
@@ -48,6 +49,7 @@ export function validateEntityData(
 ): ValidateEntityDataResult {
   const { partial } = options;
   for (const field of fields) {
+    if (field.fieldType === "activity") continue;
     const value = data[field.slug];
     const provided = Object.prototype.hasOwnProperty.call(data, field.slug);
     if (!partial && field.isRequired && (!provided || !isPresent(value))) {

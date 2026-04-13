@@ -5,9 +5,18 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { assignHighlightRulesToSettings, parseHighlightRulesJsonField } from "@/lib/field-highlight-rules-form";
 import { requirePermission, PERMISSIONS } from "@/lib/permissions";
 import { filterEntitiesByConditions } from "@/lib/view-utils";
 import { APP_CONFIG } from "@/lib/app-config";
+import { entityEventActorPayload } from "@/lib/entity-event-actor";
+import { labelFromTargetEntityData, resolveRelationDisplayFieldSlug } from "@/lib/relation-display";
+import { sqlEntityDataKeyHasMeaningfulValue } from "@/lib/entity-data-field-measure";
+import {
+  ACTIVITY_FIELD_MAX_PREVIEW_LIMIT,
+  loadActivitySummariesForEntities,
+  stripActivityFieldValues,
+} from "@/lib/activity-field";
 
 async function requireDashboardPermission(permission: string) {
   const h = await headers();
@@ -142,6 +151,12 @@ export async function createEntity(
     data[slug] = all.length ? all : null;
   }
 
+  stripActivityFieldValues(data, moduleRow?.fields ?? []);
+
+  const { validateTenantUserFieldValues } = await import("@/lib/tenant-user-field");
+  const tuCreate = await validateTenantUserFieldValues(prisma, ctx.tenantId, moduleRow?.fields ?? [], data);
+  if (!tuCreate.ok) return { error: tuCreate.message };
+
   const { buildSearchText } = await import("@/lib/search-text");
   const searchText = buildSearchText(moduleRow?.name ?? null, data) || null;
 
@@ -180,12 +195,13 @@ export async function createEntity(
   const fileFieldSlugs = (moduleRow?.fields ?? []).filter((f) => f.fieldType === "file").map((f) => f.slug);
   await syncFilesForEntity(ctx.tenantId, created.id, data, fileFieldSlugs);
 
+  const createdActor = await entityEventActorPayload(ctx.createdBy);
   await prisma.event.create({
     data: {
       tenantId: ctx.tenantId,
       entityId: created.id,
       eventType: "entity_created",
-      data: { moduleSlug: moduleRow?.slug } as object,
+      data: { moduleSlug: moduleRow?.slug, ...createdActor } as object,
       createdBy: ctx.createdBy,
     },
   });
@@ -212,6 +228,7 @@ export async function updateEntity(
     select: {
       id: true,
       moduleId: true,
+      data: true,
       metadata: true,
       module: {
         select: {
@@ -239,6 +256,12 @@ export async function updateEntity(
     const all = formData.getAll(slug).filter((v): v is string => typeof v === "string" && v.trim() !== "");
     data[slug] = all.length ? all : null;
   }
+
+  stripActivityFieldValues(data, existing.module?.fields ?? []);
+
+  const { validateTenantUserFieldValues } = await import("@/lib/tenant-user-field");
+  const tuUpdate = await validateTenantUserFieldValues(prisma, tenantId, existing.module?.fields ?? [], data);
+  if (!tuUpdate.ok) return { error: tuUpdate.message };
 
   const { buildSearchText } = await import("@/lib/search-text");
   const searchText = buildSearchText(existing.module?.name ?? null, data) || null;
@@ -280,12 +303,21 @@ export async function updateEntity(
   await syncFilesForEntity(tenantId, entity.id, data, fileFieldSlugs);
 
   const userId = (await headers()).get("x-user-id");
+  const updateActor = await entityEventActorPayload(userId);
+  const { computeShallowFieldChanges } = await import("@/lib/entity-event-field-changes");
+  const prevData = (existing.data as Record<string, unknown> | null) ?? {};
+  const prevMeta = (existing.metadata as Record<string, unknown> | null) ?? {};
+  const fieldChanges = computeShallowFieldChanges(prevData, data);
+  const metadataChanges = computeShallowFieldChanges(prevMeta, metadata as Record<string, unknown>);
+  const eventData: Record<string, unknown> = { moduleSlug: entity.module?.slug, ...updateActor };
+  if (Object.keys(fieldChanges).length > 0) eventData.fieldChanges = fieldChanges;
+  if (Object.keys(metadataChanges).length > 0) eventData.metadataChanges = metadataChanges;
   await prisma.event.create({
     data: {
       tenantId,
       entityId: entity.id,
       eventType: "entity_updated",
-      data: { moduleSlug: entity.module?.slug } as object,
+      data: eventData as object,
       createdBy: userId,
     },
   });
@@ -312,6 +344,7 @@ export async function duplicateEntity(entityId: string, moduleSlug: string): Pro
   });
   if (!existing?.module || existing.module.slug !== moduleSlug) return { error: "Entity not found." };
   const data = { ...((existing.data as Record<string, unknown>) ?? {}) };
+  stripActivityFieldValues(data, existing.module.fields ?? []);
   const metadata = (existing.metadata as Record<string, unknown> | null) ?? {};
   const searchText = existing.searchText;
   const created = await prisma.entity.create({
@@ -326,12 +359,13 @@ export async function duplicateEntity(entityId: string, moduleSlug: string): Pro
     select: { id: true },
   });
   await syncRelationshipsForEntity(tenantId, created.id, data, existing.module.fields ?? []);
+  const cloneActor = await entityEventActorPayload(userId);
   await prisma.event.create({
     data: {
       tenantId,
       entityId: created.id,
       eventType: "entity_created",
-      data: { moduleSlug: existing.module.slug, clonedFrom: entityId } as object,
+      data: { moduleSlug: existing.module.slug, clonedFrom: entityId, ...cloneActor } as object,
       createdBy: userId,
     },
   });
@@ -369,6 +403,14 @@ export async function updateEntitySingleField(
   if (!module_) return { error: "Module not found." };
   const field = module_.fields.find((f) => f.slug === fieldSlug);
   if (!field) return { error: "Field not found." };
+  if (field.fieldType === "activity") return { error: "This field is read-only." };
+  if (field.fieldType === "tenant-user" && value.trim() !== "") {
+    const { validateTenantUserFieldValues } = await import("@/lib/tenant-user-field");
+    const tu = await validateTenantUserFieldValues(prisma, tenantId, [{ slug: fieldSlug, fieldType: "tenant-user" }], {
+      [fieldSlug]: value.trim(),
+    });
+    if (!tu.ok) return { error: tu.message };
+  }
   const entity = await prisma.entity.findFirst({
     where: { id: entityId, tenantId, moduleId: module_.id, deletedAt: null },
     select: { id: true, data: true },
@@ -384,12 +426,18 @@ export async function updateEntitySingleField(
     data: { data: data as object, searchText },
   });
   await syncRelationshipsForEntity(tenantId, entityId, data, module_.fields);
+  const singleFieldActor = await entityEventActorPayload(userId);
+  const prevRow = (entity.data as Record<string, unknown>) ?? {};
+  const { computeShallowFieldChanges } = await import("@/lib/entity-event-field-changes");
+  const fieldChanges = computeShallowFieldChanges(prevRow, data);
+  const eventData: Record<string, unknown> = { moduleSlug, ...singleFieldActor };
+  if (Object.keys(fieldChanges).length > 0) eventData.fieldChanges = fieldChanges;
   await prisma.event.create({
     data: {
       tenantId,
       entityId,
       eventType: "entity_updated",
-      data: { moduleSlug } as object,
+      data: eventData as object,
       createdBy: userId,
     },
   });
@@ -400,8 +448,27 @@ export async function updateEntitySingleField(
   return {};
 }
 
+export type RelatedEntityRow = {
+  id: string;
+  moduleSlug: string;
+  moduleName: string;
+  relationType: string;
+  /** Field label (e.g. "Stage") for the relation edge; `relationType` remains the slug. */
+  relationFieldLabel: string;
+  direction: "out" | "in";
+  data: Record<string, unknown>;
+  /** Human-readable title for the linked record (respects relation display field when applicable). */
+  displayTitle: string;
+};
+
 /** Return related entities (where this entity is source or target in Relationship table). */
-export async function getRelatedEntities(entityId: string) {
+export async function getRelatedEntities(
+  entityId: string,
+  options?: {
+    /** Current record's module fields (the page you open the entity from). Used to resolve outbound relation labels. */
+    sourceModuleFields?: { slug: string; name: string; settings: unknown }[];
+  }
+) {
   await requireDashboardPermission(PERMISSIONS.entitiesRead);
   const tenantId = (await headers()).get("x-tenant-id");
   if (!tenantId) return { error: "Unauthorized", related: null };
@@ -417,9 +484,9 @@ export async function getRelatedEntities(entityId: string) {
     }),
   ]);
 
-  const related: { id: string; moduleSlug: string; moduleName: string; relationType: string; direction: "out" | "in"; data: Record<string, unknown> }[] = [];
+  const base: Omit<RelatedEntityRow, "displayTitle" | "relationFieldLabel">[] = [];
   fromSource.forEach((r) => {
-    related.push({
+    base.push({
       id: r.target.id,
       moduleSlug: r.target.module?.slug ?? "",
       moduleName: r.target.module?.name ?? "",
@@ -429,7 +496,7 @@ export async function getRelatedEntities(entityId: string) {
     });
   });
   fromTarget.forEach((r) => {
-    related.push({
+    base.push({
       id: r.source.id,
       moduleSlug: r.source.module?.slug ?? "",
       moduleName: r.source.module?.name ?? "",
@@ -438,6 +505,47 @@ export async function getRelatedEntities(entityId: string) {
       data: (r.source.data as Record<string, unknown>) ?? {},
     });
   });
+
+  const sourceFields = options?.sourceModuleFields;
+  const sourceBySlug = sourceFields?.length
+    ? new Map(sourceFields.map((f) => [f.slug, f]))
+    : null;
+
+  const moduleSlugs = [...new Set(base.map((row) => row.moduleSlug).filter(Boolean))];
+  const modules =
+    moduleSlugs.length > 0
+      ? await prisma.module.findMany({
+          where: { tenantId, slug: { in: moduleSlugs }, isActive: true },
+          include: {
+            fields: { orderBy: { sortOrder: "asc" }, select: { slug: true, name: true } },
+          },
+        })
+      : [];
+  const moduleBySlug = new Map(modules.map((m) => [m.slug, m]));
+
+  const related: RelatedEntityRow[] = base.map((r) => {
+    const mod = moduleBySlug.get(r.moduleSlug);
+    const targetFieldSlugs = mod?.fields.map((f) => ({ slug: f.slug })) ?? [];
+
+    let relationFieldLabel = r.relationType;
+    let displayTitle: string;
+
+    if (r.direction === "out") {
+      const srcField = sourceBySlug?.get(r.relationType);
+      if (srcField) relationFieldLabel = srcField.name;
+      const settings = (srcField?.settings as Record<string, unknown> | undefined) ?? {};
+      const displaySlug = resolveRelationDisplayFieldSlug(settings, targetFieldSlugs);
+      displayTitle = labelFromTargetEntityData(r.data, displaySlug, r.id);
+    } else {
+      const invField = mod?.fields.find((f) => f.slug === r.relationType);
+      if (invField) relationFieldLabel = invField.name;
+      const displaySlug = resolveRelationDisplayFieldSlug(null, targetFieldSlugs);
+      displayTitle = labelFromTargetEntityData(r.data, displaySlug, r.id);
+    }
+
+    return { ...r, displayTitle, relationFieldLabel };
+  });
+
   return { error: null, related };
 }
 
@@ -451,7 +559,13 @@ export async function getRelationEntityData(moduleSlug: string, entityIds: strin
 
   const module_ = await prisma.module.findFirst({
     where: { tenantId, slug: moduleSlug, isActive: true },
-    select: { id: true, fields: { orderBy: { sortOrder: "asc" }, select: { slug: true, name: true } } },
+    select: {
+      id: true,
+      fields: {
+        orderBy: { sortOrder: "asc" },
+        select: { slug: true, name: true, fieldType: true, settings: true },
+      },
+    },
   });
   if (!module_) return { error: "Module not found", entities: null, fields: null };
 
@@ -460,10 +574,27 @@ export async function getRelationEntityData(moduleSlug: string, entityIds: strin
     select: { id: true, data: true },
   });
 
+  const fields = module_.fields.map((f) => ({
+    slug: f.slug,
+    name: f.name,
+    fieldType: f.fieldType,
+    settings: f.settings ?? undefined,
+  }));
+  const activityDefs = fields.filter((f) => f.fieldType === "activity").map((f) => ({ slug: f.slug, settings: f.settings }));
+  const activityMap = await loadActivitySummariesForEntities(
+    tenantId,
+    entities.map((e) => e.id),
+    activityDefs
+  );
+  const activityByEntityId = Object.fromEntries(
+    [...activityMap.entries()].map(([id, rec]) => [id, rec])
+  );
+
   return {
     error: null,
     entities: entities.map((e) => ({ id: e.id, data: (e.data as Record<string, unknown>) ?? {} })),
-    fields: module_.fields,
+    fields,
+    activityByEntityId,
   };
 }
 
@@ -648,12 +779,13 @@ export async function deleteEntity(
     include: { module: { select: { slug: true } } },
   });
   const userId = (await headers()).get("x-user-id");
+  const deleteActor = await entityEventActorPayload(userId);
   await prisma.event.create({
     data: {
       tenantId,
       entityId: entity.id,
       eventType: "entity_deleted",
-      data: { moduleSlug: entity.module?.slug } as object,
+      data: { moduleSlug: entity.module?.slug, ...deleteActor } as object,
       createdBy: userId,
     },
   });
@@ -823,7 +955,14 @@ export async function getEntityEvents(entityId: string, limit = 20) {
     where: { tenantId, entityId },
     orderBy: { createdAt: "desc" },
     take: limit,
-    select: { id: true, eventType: true, data: true, createdAt: true, createdBy: true },
+    select: {
+      id: true,
+      eventType: true,
+      data: true,
+      createdAt: true,
+      createdBy: true,
+      createdByUser: { select: { email: true, name: true } },
+    },
   });
   return { error: null, events };
 }
@@ -1384,6 +1523,9 @@ async function applyTenantSettingsUpdate(
   if (section === "backend-locale") {
     const locale = (formData.get("locale") as string)?.trim();
     settings.locale = locale && /^[a-z]{2}(-[A-Z]{2})?$/.test(locale) ? locale : undefined;
+    const { isValidIanaTimeZone } = await import("@/lib/tenant-timezone");
+    const tzRaw = (formData.get("timeZone") as string)?.trim();
+    settings.timeZone = tzRaw && isValidIanaTimeZone(tzRaw) ? tzRaw : undefined;
   }
 
   if (section === "backend-features") {
@@ -2102,7 +2244,54 @@ export async function addFieldsToModule(
   redirect(`/dashboard/m/${moduleSlug}`);
 }
 
-const FIELD_TYPES = ["text", "number", "date", "boolean", "select", "relation", "relation-multi", "file", "json"] as const;
+const FIELD_TYPES = [
+  "text",
+  "number",
+  "date",
+  "boolean",
+  "select",
+  "tenant-user",
+  "relation",
+  "relation-multi",
+  "file",
+  "json",
+  "activity",
+] as const;
+
+function applyHighlightRulesFromFormData(formData: FormData, mergedSettings: Record<string, unknown>): { error?: string } {
+  if (!formData.has("highlightRulesJson")) return {};
+  const parsed = parseHighlightRulesJsonField(formData.get("highlightRulesJson") as string | null);
+  if (!parsed.ok) return { error: parsed.error };
+  assignHighlightRulesToSettings(mergedSettings, parsed.rules);
+  return {};
+}
+
+/** Date fields: `deadline` checkbox + optional `deadlineListDaysAhead` on field settings (not tenant). */
+function mergeDateDeadlineFieldSettingsFromForm(
+  formData: FormData,
+  mergedSettings: Record<string, unknown>,
+  fieldType: string
+): void {
+  if (fieldType !== "date") {
+    delete mergedSettings.deadline;
+    delete mergedSettings.deadlineListDaysAhead;
+    return;
+  }
+  const on = formData.get("deadline") === "1" || formData.get("deadline") === "on";
+  if (on) {
+    mergedSettings.deadline = true;
+    const raw = (formData.get("deadlineListDaysAhead") as string)?.trim();
+    if (raw === "") {
+      delete mergedSettings.deadlineListDaysAhead;
+    } else {
+      const n = parseInt(raw, 10);
+      if (Number.isFinite(n) && n >= 0 && n <= 3650) mergedSettings.deadlineListDaysAhead = n;
+    }
+  } else {
+    delete mergedSettings.deadline;
+    delete mergedSettings.deadlineListDaysAhead;
+  }
+}
 
 /** Add a single field to a module (from Manage fields UI). */
 export async function addFieldToModule(moduleSlug: string, _prev: unknown, formData: FormData) {
@@ -2119,7 +2308,10 @@ export async function addFieldToModule(moduleSlug: string, _prev: unknown, formD
   let slug = (formData.get("slug") as string)?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || name.toLowerCase().replace(/\s+/g, "_");
   const fieldType = (formData.get("fieldType") as string)?.trim();
   if (!fieldType || !FIELD_TYPES.includes(fieldType as (typeof FIELD_TYPES)[number])) return { error: "Valid field type is required." };
-  const isRequired = formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
+  const isRequired =
+    fieldType === "activity"
+      ? false
+      : formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
   const existingSlugs = new Set(module_.fields.map((f) => f.slug));
   let n = 0;
   while (existingSlugs.has(slug)) slug = `${slug}_${++n}`;
@@ -2139,6 +2331,16 @@ export async function addFieldToModule(moduleSlug: string, _prev: unknown, formD
       settings.showBacklinksOnTarget = true;
     }
   }
+  if (fieldType === "activity") {
+    const raw = (formData.get("activityLimit") as string)?.trim();
+    if (raw !== "") {
+      const lim = parseInt(raw, 10);
+      if (Number.isFinite(lim) && lim >= 1 && lim <= ACTIVITY_FIELD_MAX_PREVIEW_LIMIT) settings.activityLimit = lim;
+    }
+  }
+  settings.showInEntityList =
+    formData.get("showInEntityList") === "1" || formData.get("showInEntityList") === "on";
+  mergeDateDeadlineFieldSettingsFromForm(formData, settings, fieldType);
   const sortOrder = module_.fields.length > 0 ? Math.max(...module_.fields.map((f) => f.sortOrder)) + 1 : 0;
   await prisma.field.create({
     data: {
@@ -2174,14 +2376,19 @@ export async function updateFieldInModule(moduleSlug: string, fieldSlug: string,
   if (!fieldType || !FIELD_TYPES.includes(fieldType as (typeof FIELD_TYPES)[number])) return { error: "Valid field type is required." };
   if (fieldType !== field.fieldType) {
     const rows = await prisma.$queryRaw<[{ count: bigint }]>(
-      Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND (data ? ${fieldSlug})`
+      Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND ${sqlEntityDataKeyHasMeaningfulValue(fieldSlug)}`
     );
     const count = Number(rows[0]?.count ?? 0);
     if (count > 0) {
-      return { error: `Cannot change field type: ${count} record(s) have a value for this field. Clear or migrate data first.` };
+      return {
+        error: `Cannot change field type: ${count} record(s) still have a non-empty value for this field. Clear or migrate those values on each record, or ask a platform administrator for help.`,
+      };
     }
   }
-  const isRequired = formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
+  const isRequired =
+    fieldType === "activity"
+      ? false
+      : formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
   const settings: Record<string, unknown> = {};
   if (fieldType === "select") {
     const opts = (formData.get("options") as string)?.trim();
@@ -2198,13 +2405,37 @@ export async function updateFieldInModule(moduleSlug: string, fieldSlug: string,
       settings.showBacklinksOnTarget = true;
     }
   }
+  const prevRaw = field.settings;
+  const prev =
+    prevRaw && typeof prevRaw === "object" && !Array.isArray(prevRaw)
+      ? ({ ...(prevRaw as Record<string, unknown>) } as Record<string, unknown>)
+      : {};
+  const mergedSettings = { ...prev, ...settings } as Record<string, unknown>;
+  mergedSettings.showInEntityList =
+    formData.get("showInEntityList") === "1" || formData.get("showInEntityList") === "on";
+  mergeDateDeadlineFieldSettingsFromForm(formData, mergedSettings, fieldType);
+  if (fieldType !== "select") delete mergedSettings.options;
+  if (fieldType === "activity") {
+    const rawAct = (formData.get("activityLimit") as string)?.trim();
+    if (rawAct === "") delete mergedSettings.activityLimit;
+    else {
+      const limAct = parseInt(rawAct, 10);
+      if (Number.isFinite(limAct) && limAct >= 1 && limAct <= ACTIVITY_FIELD_MAX_PREVIEW_LIMIT) {
+        mergedSettings.activityLimit = limAct;
+      }
+    }
+  } else {
+    delete mergedSettings.activityLimit;
+  }
+  const hlErr = applyHighlightRulesFromFormData(formData, mergedSettings);
+  if (hlErr.error) return { error: hlErr.error };
   await prisma.field.update({
     where: { id: field.id },
     data: {
       name,
       fieldType,
       isRequired,
-      settings: Object.keys(settings).length > 0 ? (settings as object) : {},
+      settings: mergedSettings as object,
     },
   });
   revalidatePath(`/dashboard/m/${moduleSlug}`);
@@ -2225,11 +2456,13 @@ export async function removeFieldFromModule(moduleSlug: string, fieldSlug: strin
   const field = module_.fields[0];
   if (!field) return { error: "Field not found." };
   const rows = await prisma.$queryRaw<[{ count: bigint }]>(
-    Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND (data ? ${fieldSlug})`
+    Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND ${sqlEntityDataKeyHasMeaningfulValue(fieldSlug)}`
   );
   const entityCount = Number(rows[0]?.count ?? 0);
   if (entityCount > 0) {
-    return { error: `Cannot remove: ${entityCount} record(s) have a value for this field. Clear data first.` };
+    return {
+      error: `Cannot remove: ${entityCount} record(s) still have a non-empty value for this field. Clear or migrate those values on every record, or ask a platform administrator for help.`,
+    };
   }
   await prisma.field.delete({ where: { id: field.id } });
   revalidatePath(`/dashboard/m/${moduleSlug}`);
@@ -2511,12 +2744,13 @@ export async function hardDeleteEntityAsPlatformAdmin(
   }
 
   const userId = (await headers()).get("x-user-id");
+  const hardDeleteActor = await entityEventActorPayload(userId);
   await prisma.event.create({
     data: {
       tenantId,
       entityId,
       eventType: "entity_hard_deleted",
-      data: { moduleSlug } as object,
+      data: { moduleSlug, ...hardDeleteActor } as object,
       createdBy: userId,
     },
   });
@@ -2554,7 +2788,10 @@ export async function addFieldToModuleAsPlatformAdminFormAction(_prev: unknown, 
   let slug = (formData.get("slug") as string)?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || name.toLowerCase().replace(/\s+/g, "_");
   const fieldType = (formData.get("fieldType") as string)?.trim();
   if (!fieldType || !FIELD_TYPES.includes(fieldType as (typeof FIELD_TYPES)[number])) return { error: "Valid field type is required." };
-  const isRequired = formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
+  const isRequired =
+    fieldType === "activity"
+      ? false
+      : formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
   const existingSlugs = new Set(module_.fields.map((f) => f.slug));
   let n = 0;
   while (existingSlugs.has(slug)) slug = `${slug}_${++n}`;
@@ -2574,6 +2811,16 @@ export async function addFieldToModuleAsPlatformAdminFormAction(_prev: unknown, 
       settings.showBacklinksOnTarget = true;
     }
   }
+  if (fieldType === "activity") {
+    const raw = (formData.get("activityLimit") as string)?.trim();
+    if (raw !== "") {
+      const lim = parseInt(raw, 10);
+      if (Number.isFinite(lim) && lim >= 1 && lim <= ACTIVITY_FIELD_MAX_PREVIEW_LIMIT) settings.activityLimit = lim;
+    }
+  }
+  settings.showInEntityList =
+    formData.get("showInEntityList") === "1" || formData.get("showInEntityList") === "on";
+  mergeDateDeadlineFieldSettingsFromForm(formData, settings, fieldType);
   const sortOrder = module_.fields.length > 0 ? Math.max(...module_.fields.map((f) => f.sortOrder)) + 1 : 0;
   await prisma.field.create({
     data: {
@@ -2615,14 +2862,19 @@ export async function updateFieldInModuleAsPlatformAdminFormAction(prevOrFormDat
   if (!fieldType || !FIELD_TYPES.includes(fieldType as (typeof FIELD_TYPES)[number])) return { error: "Valid field type is required." };
   if (fieldType !== field.fieldType) {
     const rows = await prisma.$queryRaw<[{ count: bigint }]>(
-      Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND (data ? ${fieldSlug})`
+      Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND ${sqlEntityDataKeyHasMeaningfulValue(fieldSlug)}`
     );
     const count = Number(rows[0]?.count ?? 0);
     if (count > 0) {
-      return { error: `Cannot change field type: ${count} record(s) have a value for this field. Clear or migrate data first.` };
+      return {
+        error: `Cannot change field type: ${count} record(s) still have a non-empty value for this field. On this screen, use "Clear values" for this field first, or migrate data.`,
+      };
     }
   }
-  const isRequired = formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
+  const isRequired =
+    fieldType === "activity"
+      ? false
+      : formData.get("isRequired") === "1" || formData.get("isRequired") === "on";
   const settings: Record<string, unknown> = {};
   if (fieldType === "select") {
     const opts = (formData.get("options") as string)?.trim();
@@ -2639,9 +2891,33 @@ export async function updateFieldInModuleAsPlatformAdminFormAction(prevOrFormDat
       settings.showBacklinksOnTarget = true;
     }
   }
+  const prevRawPlatform = field.settings;
+  const prevPlatform =
+    prevRawPlatform && typeof prevRawPlatform === "object" && !Array.isArray(prevRawPlatform)
+      ? ({ ...(prevRawPlatform as Record<string, unknown>) } as Record<string, unknown>)
+      : {};
+  const mergedSettingsPlatform = { ...prevPlatform, ...settings } as Record<string, unknown>;
+  mergedSettingsPlatform.showInEntityList =
+    formData.get("showInEntityList") === "1" || formData.get("showInEntityList") === "on";
+  mergeDateDeadlineFieldSettingsFromForm(formData, mergedSettingsPlatform, fieldType);
+  if (fieldType !== "select") delete mergedSettingsPlatform.options;
+  if (fieldType === "activity") {
+    const rawPl = (formData.get("activityLimit") as string)?.trim();
+    if (rawPl === "") delete mergedSettingsPlatform.activityLimit;
+    else {
+      const limPl = parseInt(rawPl, 10);
+      if (Number.isFinite(limPl) && limPl >= 1 && limPl <= ACTIVITY_FIELD_MAX_PREVIEW_LIMIT) {
+        mergedSettingsPlatform.activityLimit = limPl;
+      }
+    }
+  } else {
+    delete mergedSettingsPlatform.activityLimit;
+  }
+  const hlErrPlatform = applyHighlightRulesFromFormData(formData, mergedSettingsPlatform);
+  if (hlErrPlatform.error) return { error: hlErrPlatform.error };
   await prisma.field.update({
     where: { id: field.id },
-    data: { name, fieldType, isRequired, settings: Object.keys(settings).length > 0 ? (settings as object) : {} },
+    data: { name, fieldType, isRequired, settings: mergedSettingsPlatform as object },
   });
   revalidatePath(platformFieldsRedirect(targetTenantId, moduleSlug));
   redirect(platformFieldsRedirect(targetTenantId, moduleSlug));
@@ -2670,15 +2946,77 @@ export async function removeFieldFromModuleAsPlatformAdminFormAction(
   const field = module_.fields[0];
   if (!field) return { error: "Field not found." };
   const rows = await prisma.$queryRaw<[{ count: bigint }]>(
-    Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND (data ? ${fieldSlug})`
+    Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND ${sqlEntityDataKeyHasMeaningfulValue(fieldSlug)}`
   );
   const count = Number(rows[0]?.count ?? 0);
   if (count > 0) {
-    return { error: `Cannot remove: ${count} record(s) have a value for this field. Clear data first.` };
+    return {
+      error: `Cannot remove: ${count} record(s) still have a non-empty value for this field. On this screen, use "Clear values" for this field first.`,
+    };
   }
   await prisma.field.delete({ where: { id: field.id } });
   revalidatePath(platformFieldsRedirect(targetTenantId, moduleSlug));
   redirect(platformFieldsRedirect(targetTenantId, moduleSlug));
+}
+
+/** Platform admin: clear a field’s key from every entity row in the module (including soft-deleted), then refresh search_text. formData: targetTenantId, moduleSlug, fieldSlug. */
+export async function clearModuleFieldValuesForAllEntitiesAsPlatformAdminFormAction(
+  _prev: unknown,
+  formData: FormData
+): Promise<{ error?: string; cleared?: number }> {
+  try {
+    await requirePlatformAdmin();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  const fieldSlug = (formData.get("fieldSlug") as string)?.trim();
+  if (!targetTenantId || !moduleSlug || !fieldSlug) return { error: "Missing target tenant, module, or field." };
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId: targetTenantId, slug: moduleSlug, isActive: true },
+    include: { fields: { where: { slug: fieldSlug } } },
+  });
+  if (!module_) return { error: "Module not found." };
+  const field = module_.fields[0];
+  if (!field) return { error: "Field not found." };
+
+  const updatedRows = await prisma.$executeRaw(
+    Prisma.sql`
+      UPDATE entities
+      SET data = data - ${fieldSlug}
+      WHERE tenant_id = ${targetTenantId}::uuid
+        AND module_id = ${module_.id}::uuid
+        AND (data ? ${fieldSlug})
+    `
+  );
+  const cleared = typeof updatedRows === "number" ? updatedRows : 0;
+
+  const { buildSearchText } = await import("@/lib/search-text");
+  const pageSize = 200;
+  let skip = 0;
+  for (;;) {
+    const batch = await prisma.entity.findMany({
+      where: { tenantId: targetTenantId, moduleId: module_.id },
+      select: { id: true, data: true },
+      take: pageSize,
+      skip,
+      orderBy: { id: "asc" },
+    });
+    if (batch.length === 0) break;
+    for (const e of batch) {
+      const data = (e.data as Record<string, unknown>) ?? {};
+      const searchText = buildSearchText(module_.name, data) || null;
+      await prisma.entity.update({
+        where: { id: e.id },
+        data: { searchText },
+      });
+    }
+    skip += pageSize;
+  }
+
+  revalidatePath(platformFieldsRedirect(targetTenantId, moduleSlug));
+  return { cleared };
 }
 
 /** Platform admin: reorder field. formData: targetTenantId, moduleSlug, fieldSlug, direction (up|down). Accepts (formData) or (prev, formData). */
@@ -3001,12 +3339,12 @@ export async function handleAiPrompt(tenantId: string, _prev: unknown, formData:
     if (!field) return { error: "Field not found." };
     // Block delete if any entity in this module has data for this field (JSONB key exists)
     const rows = await prisma.$queryRaw<[{ count: bigint }]>(
-      Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND (data ? ${fieldSlug})`
+      Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND ${sqlEntityDataKeyHasMeaningfulValue(fieldSlug)}`
     );
     const entityCount = Number(rows[0]?.count ?? 0);
     if (entityCount > 0) {
       return {
-        error: `Cannot remove this field because ${entityCount} record(s) still have a value for it. Clear or migrate the data first.`,
+        error: `Cannot remove this field because ${entityCount} record(s) still have a non-empty value. Clear or migrate those values on every record, or ask a platform administrator for help.`,
       };
     }
     await prisma.field.delete({ where: { id: field.id } });

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import Link from "next/link";
 import { InverseRelationBacklinks } from "@/components/dashboard/InverseRelationBacklinks";
+import { EntityListClickableRow } from "@/components/dashboard/EntityListClickableRow";
 import type { InverseBacklinkSection } from "@/lib/inverse-relation-backlinks";
 
 export function EntityListRowWithBacklinks({
@@ -22,21 +22,17 @@ export function EntityListRowWithBacklinks({
 
   return (
     <>
-      <tr>
+      <EntityListClickableRow href={editHref}>
         {children}
         <td style={{ whiteSpace: "nowrap", verticalAlign: "middle" }}>
-          <Link
-            href={editHref}
-            className="btn btn-secondary"
-            style={{ padding: "0.25rem 0.5rem", fontSize: "0.8125rem" }}
-          >
-            Edit
-          </Link>
           {hasBacklinks && (
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={() => setOpen((v) => !v)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen((v) => !v);
+              }}
               aria-expanded={open}
               aria-label={open ? "Hide linked records" : "Show linked records"}
               title="Linked records"
@@ -44,7 +40,6 @@ export function EntityListRowWithBacklinks({
                 padding: "0.2rem 0.4rem",
                 fontSize: "0.7rem",
                 lineHeight: 1.2,
-                marginLeft: "0.35rem",
                 minWidth: "1.75rem",
               }}
             >
@@ -52,7 +47,7 @@ export function EntityListRowWithBacklinks({
             </button>
           )}
         </td>
-      </tr>
+      </EntityListClickableRow>
       {hasBacklinks && open && (
         <tr className="entity-list-inverse-backlinks-row">
           <td

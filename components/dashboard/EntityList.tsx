@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { RelationMultiCell } from "./RelationMultiCell";
 import { TicketSoldCell } from "./TicketSoldCell";
 import { EntityListRowWithBacklinks } from "./EntityListRowWithBacklinks";
@@ -11,6 +10,8 @@ import {
 } from "@/lib/module-settings";
 import { formatDateIfApplicable } from "@/lib/format";
 import { APP_CONFIG } from "@/lib/app-config";
+import { fieldHighlightClassNameForColumn } from "@/lib/field-highlight";
+import { EntityListClickableRow } from "./EntityListClickableRow";
 
 type Field = {
   id: string;
@@ -35,7 +36,11 @@ export function EntityList({
   columnSlugs,
   allowRefund = true,
   relationLabels,
+  tenantUserLabels,
   inverseBacklinksByEntityId,
+  activityCellSummaries,
+  tenantLocale,
+  tenantTimeZone,
 }: {
   moduleSlug: string;
   /** Module with settings (for payment/donation column). */
@@ -47,8 +52,16 @@ export function EntityList({
   allowRefund?: boolean;
   /** Per field slug, map of related entity id → display label (list/table). */
   relationLabels?: Record<string, Record<string, string>>;
+  /** Workspace user id → display label for `tenant-user` columns. */
+  tenantUserLabels?: Record<string, string>;
   /** When relation fields opt in, expandable rows show source records linking to each target row. */
   inverseBacklinksByEntityId?: Record<string, InverseBacklinkSection[]>;
+  /** For `activity` list columns: entity id → field slug → multi-line summary (first line shown in cell). */
+  activityCellSummaries?: Record<string, Record<string, string>>;
+  /** Tenant `settings.locale` for date/number display. */
+  tenantLocale?: string;
+  /** Tenant `settings.timeZone` (IANA) for date display and deadline highlights. */
+  tenantTimeZone?: string;
 }) {
   const maxCols = APP_CONFIG.entityListMaxColumns;
   const columns = columnSlugs?.length
@@ -57,13 +70,13 @@ export function EntityList({
   const showAmountColumn = module != null && getModulePaymentType(module) != null;
   const dataColumnCount = columns.length + (showAmountColumn ? 1 : 0);
   const wideTable = dataColumnCount >= 6;
-  const colSpan = columns.length + (showAmountColumn ? 1 : 0) + 1;
+  const colSpan = columns.length + (showAmountColumn ? 1 : 0);
 
   return (
     <div className="entity-table-wrap">
     {wideTable && (
       <p className="entity-list-table-scroll-hint">
-        Tip: the first column and <strong>Edit</strong> stay pinned; scroll sideways to see the rest.
+        Tip: the first and last columns stay pinned; scroll sideways to see the rest. Click a row to open the record.
       </p>
     )}
     <table className="entity-table">
@@ -73,13 +86,12 @@ export function EntityList({
             <th key={f.id}>{f.name}</th>
           ))}
           {showAmountColumn && <th>Price / Donation</th>}
-          <th style={{ width: 100 }}></th>
         </tr>
       </thead>
       <tbody>
         {entities.length === 0 ? (
           <tr>
-            <td colSpan={columns.length + (showAmountColumn ? 1 : 0) + 1} className="empty-state empty-state-inline">
+            <td colSpan={columns.length + (showAmountColumn ? 1 : 0)} className="empty-state empty-state-inline">
               <span className="empty-state-icon" aria-hidden>📋</span>
               <p className="empty-state-message">No records yet. Create one to get started.</p>
             </td>
@@ -105,16 +117,38 @@ export function EntityList({
 
             const dataCells = (
               <>
-                {columns.map((f) => (
-                  <td key={f.id}>
-                    {formatCellValue(
-                      (entity.data as Record<string, unknown>)[f.slug],
-                      f,
-                      entity,
-                      relationLabels
-                    )}
-                  </td>
-                ))}
+                {columns.map((f) => {
+                  const raw = (entity.data as Record<string, unknown>)[f.slug];
+                  const hl = fieldHighlightClassNameForColumn(f.slug, f.fieldType, raw, f.settings, {
+                    data: entity.data as Record<string, unknown>,
+                    fields,
+                    tenantTimeZone,
+                  });
+                  const inner = formatCellValue(
+                    raw,
+                    f,
+                    entity,
+                    relationLabels,
+                    tenantUserLabels,
+                    tenantLocale,
+                    tenantTimeZone,
+                    activityCellSummaries
+                  );
+                  return (
+                    <td key={f.id}>
+                      {hl ? (
+                        <span
+                          className={`entity-table-cell-highlight ${hl.className}`}
+                          style={hl.style}
+                        >
+                          {inner}
+                        </span>
+                      ) : (
+                        inner
+                      )}
+                    </td>
+                  );
+                })}
                 {showAmountColumn && (
                   <td>
                     {amountNode}
@@ -135,7 +169,7 @@ export function EntityList({
               return (
                 <EntityListRowWithBacklinks
                   key={entity.id}
-                  colSpan={colSpan}
+                  colSpan={colSpan + 1}
                   inverseSections={inverseSections}
                   editHref={editHref}
                 >
@@ -145,18 +179,9 @@ export function EntityList({
             }
 
             return (
-              <tr key={entity.id}>
+              <EntityListClickableRow key={entity.id} href={editHref}>
                 {dataCells}
-                <td>
-                  <Link
-                    href={editHref}
-                    className="btn btn-secondary"
-                    style={{ padding: "0.25rem 0.5rem", fontSize: "0.8125rem" }}
-                  >
-                    Edit
-                  </Link>
-                </td>
-              </tr>
+              </EntityListClickableRow>
             );
           })
         )}
@@ -178,10 +203,34 @@ function formatAmount(cents: number): string {
 function formatCellValue(
   value: unknown,
   field: Field,
-  _entity: Entity,
-  relationLabels?: Record<string, Record<string, string>>
+  entity: Entity,
+  relationLabels?: Record<string, Record<string, string>>,
+  tenantUserLabels?: Record<string, string>,
+  tenantLocale?: string,
+  tenantTimeZone?: string,
+  activityCellSummaries?: Record<string, Record<string, string>>
 ): React.ReactNode {
+  if (field.fieldType === "activity") {
+    const full = activityCellSummaries?.[entity.id]?.[field.slug];
+    if (!full) return <span style={{ color: "#94a3b8" }}>—</span>;
+    if (full === "No activity yet.") {
+      return <span style={{ color: "#64748b", fontSize: "0.8125rem" }}>No activity yet.</span>;
+    }
+    const firstLine = full.split("\n")[0] ?? full;
+    const hasMore = full.includes("\n");
+    return (
+      <span style={{ fontSize: "0.8125rem", color: "#475569" }} title={full}>
+        {firstLine}
+        {hasMore ? " …" : ""}
+      </span>
+    );
+  }
   if (value == null) return "—";
+  if (field.fieldType === "tenant-user" && typeof value === "string" && value.trim() !== "") {
+    const label = tenantUserLabels?.[value];
+    if (label) return label;
+    return value;
+  }
   if (field.fieldType === "relation" && typeof value === "string" && value.trim() !== "") {
     const map = relationLabels?.[field.slug];
     if (map?.[value]) return map[value];
@@ -209,7 +258,7 @@ function formatCellValue(
     return value.join(", ");
   }
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  const dateStr = formatDateIfApplicable(value, field.fieldType);
+  const dateStr = formatDateIfApplicable(value, field.fieldType, tenantLocale, tenantTimeZone);
   if (dateStr !== null) return dateStr;
   if (field.fieldType === "file" && typeof value === "string" && value.trim() !== "") {
     const url = value.trim();

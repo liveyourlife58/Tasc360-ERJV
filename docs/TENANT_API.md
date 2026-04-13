@@ -112,6 +112,15 @@ GET /api/v1/tenants/:tenantId/modules/:moduleSlug/fields
 
 **Response:** `{ "fields": [ { "id", "name", "slug", "fieldType", "isRequired", "settings", "sortOrder" }, ... ] }`. Use this to build dynamic forms: `fieldType` is one of `text`, `number`, `date`, `boolean`, `select`, `relation`, `file`, `json`, `relation-multi`. For `select`, `settings.options` is an array of option strings.
 
+**Optional UI hints — `settings.highlightRules`:** An array of `{ "when": { ... }, "variant": "blue" | "green" | "amber" | "red" | "gray" }` (color slots; legacy `info` / `success` / `warning` / `danger` / `neutral` are still accepted and mapped to those tones). The first matching rule wins. `when.op` may be: `equals` (with `value`), `oneOf` (with `values`), `contains` (with `value`, optional `caseSensitive`), `empty`, `nonEmpty`, `gt` / `gte` / `lt` / `lte` (with `value`, number fields), `between` (with `min`, `max`, number fields), `betweenDates` / `before` / `after` (with ISO `YYYY-MM-DD` strings, date fields), `isTrue` / `isFalse` (boolean fields). Example for a select field:
+
+```json
+"highlightRules": [
+  { "when": { "op": "oneOf", "values": ["Blocked", "Cancelled"] }, "variant": "danger" },
+  { "when": { "op": "equals", "value": "Review" }, "variant": "warning" }
+]
+```
+
 ---
 
 ### List entities (by module)

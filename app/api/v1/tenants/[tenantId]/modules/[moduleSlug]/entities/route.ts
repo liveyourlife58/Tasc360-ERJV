@@ -7,6 +7,7 @@ import { getIdempotentResponse, setIdempotentResponse } from "@/lib/idempotency"
 import { apiError, withRateLimitHeaders } from "@/lib/api-response";
 import { ERROR_CODES } from "@/lib/errors";
 import { validateEntityData } from "@/lib/api-entity-validation";
+import { stripActivityFieldValues } from "@/lib/activity-field";
 import { createRequestLogger } from "@/lib/logger";
 import { logApiEntityEvent, logAuditEvent } from "@/lib/audit";
 import { getModuleEntityListCreatedAtOrder } from "@/lib/module-settings";
@@ -96,6 +97,15 @@ export async function POST(
   const data: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(body)) {
     if (fieldSlugs.has(key)) data[key] = value;
+  }
+  stripActivityFieldValues(data, module_.fields);
+  const { validateTenantUserFieldValues } = await import("@/lib/tenant-user-field");
+  const tuPost = await validateTenantUserFieldValues(prisma, tenantId, module_.fields, data);
+  if (!tuPost.ok) {
+    return withRateLimitHeaders(
+      apiError(ERROR_CODES.VALIDATION_ERROR, 400, tuPost.message),
+      rate
+    );
   }
   const { buildSearchText } = await import("@/lib/search-text");
   const searchText = buildSearchText(module_.name, data);

@@ -5,6 +5,7 @@
 import { prisma } from "@/lib/prisma";
 import { formatEntityDataForContext } from "@/lib/format-entity-context";
 import { getTenantLocale } from "@/lib/format";
+import { getTenantTimeZone } from "@/lib/tenant-timezone";
 
 export type AskAiContextResult =
   | { context: string; citedRecords: { entityId: string; moduleSlug: string; moduleName: string }[]; sys: string }
@@ -43,6 +44,7 @@ export async function buildAskAiContext(
     }),
   ]);
   const locale = getTenantLocale(tenant?.settings ?? null);
+  const timeZone = getTenantTimeZone(tenant?.settings ?? null);
   let results = _results;
   const moduleById = new Map(modules.map((m) => [m.id, m]));
   const fieldLabelsByModuleId = new Map<string, Record<string, string>>();
@@ -105,7 +107,7 @@ export async function buildAskAiContext(
     citedRecords.push({ entityId: r.entityId, moduleSlug: slug, moduleName: label });
     const fieldLabels = r.moduleId ? fieldLabelsByModuleId.get(r.moduleId) : undefined;
     const fieldTypes = r.moduleId ? fieldTypesByModuleId.get(r.moduleId) : undefined;
-    const fieldsText = formatEntityDataForContext(r.data, { fieldLabels, fieldTypes, locale });
+    const fieldsText = formatEntityDataForContext(r.data, { fieldLabels, fieldTypes, locale, timeZone });
     contextParts.push(`[${label} ${r.entityId}]\n${fieldsText}`);
   }
   const context =

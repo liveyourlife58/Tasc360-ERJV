@@ -13,6 +13,7 @@ import { getConsentTypes } from "@/lib/consent";
 import { getAllowDeveloperSetup, isPlatformAdmin } from "@/lib/developer-setup";
 import { getCustomerLoginSettings } from "@/lib/customer-login-settings";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
+import { getTenantTimeZone } from "@/lib/tenant-timezone";
 import { updateDashboardSettings, connectStripeFormAction, sendTestWebhookFormAction, createApiKeyAction, revokeApiKeyFormAction, updateConsentTypesFormAction, updateAllowDeveloperSetupForCurrentTenantFormAction, inviteEndUserAction, deactivateEndUserFormAction, sendEndUserPasswordResetFormAction } from "../actions";
 import { SettingsSectionCards } from "./SettingsSectionCards";
 
@@ -147,6 +148,7 @@ export default async function DashboardSettingsPage({
   const currentEmailFromName = (settingsObj.emailFromName as string) ?? "";
   const currentEmailReplyTo = (settingsObj.emailReplyTo as string) ?? "";
   const currentLocale = (settingsObj.locale as string) ?? "";
+  const currentTimeZone = getTenantTimeZone(tenant?.settings ?? null);
   const featureFlags = getFeatureFlags(tenant?.settings ?? null);
   const apiKeys = await listApiKeys(tenantId);
   const customerLogin = getCustomerLoginSettings(tenant?.settings ?? null);
@@ -213,6 +215,7 @@ export default async function DashboardSettingsPage({
         currentEmailFromName={currentEmailFromName}
         currentEmailReplyTo={currentEmailReplyTo}
         currentLocale={currentLocale}
+        currentTimeZone={currentTimeZone}
         featureFlags={featureFlags}
         apiKeys={apiKeys}
         createApiKeyAction={createApiKeyAction.bind(null, tenantId)}
@@ -220,9 +223,9 @@ export default async function DashboardSettingsPage({
         customerLoginEnabled={customerLogin.enabled}
         customerLoginAllowSelfSignup={customerLogin.allowSelfSignup}
         endUsers={endUsers}
-        inviteEndUserAction={(prev, formData) => inviteEndUserAction(tenantId, prev, formData)}
-        deactivateEndUserFormAction={(formData) => deactivateEndUserFormAction(tenantId, formData)}
-        sendEndUserPasswordResetFormAction={(formData) => sendEndUserPasswordResetFormAction(tenantId, formData)}
+        inviteEndUserAction={inviteEndUserAction.bind(null, tenantId)}
+        deactivateEndUserFormAction={deactivateEndUserFormAction.bind(null, tenantId)}
+        sendEndUserPasswordResetFormAction={sendEndUserPasswordResetFormAction.bind(null, tenantId)}
         currentConsentTypes={currentConsentTypes}
         updateConsentTypesFormAction={updateConsentTypesFormAction}
         showDeveloperSections={showDeveloperSections}

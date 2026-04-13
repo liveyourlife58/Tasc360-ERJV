@@ -6,6 +6,7 @@ import { DeveloperSetupToggle } from "./DeveloperSetupToggle";
 import { GenerateSiteAiForm } from "./GenerateSiteAiForm";
 import { BlobUploadInput } from "@/components/dashboard/BlobUploadInput";
 import { DashboardModulesHubPanel } from "@/components/dashboard/DashboardModulesHubPanel";
+import { TENANT_TIME_ZONE_PRESETS } from "@/lib/tenant-timezone";
 
 type Branding = { name?: string; logo?: string; primaryColor?: string };
 type Home =
@@ -124,6 +125,8 @@ type Props = {
   currentEmailFromName?: string;
   currentEmailReplyTo?: string;
   currentLocale?: string;
+  /** Tenant IANA timezone for dates / deadlines (default UTC). */
+  currentTimeZone?: string;
   featureFlags?: { myOrders: boolean; refunds: boolean };
   apiKeys?: { id: string; name: string; keyPrefix: string; lastUsedAt: Date | null; createdAt: Date }[];
   createApiKeyAction?: (prev: unknown, formData: FormData) => Promise<{ key?: string; error?: string }>;
@@ -186,6 +189,7 @@ export function SettingsSectionCards(props: Props) {
     currentEmailFromName = "",
     currentEmailReplyTo = "",
     currentLocale = "",
+    currentTimeZone = "UTC",
   } = props;
 
   const homeModuleSlug = home?.type ? home.moduleSlug : "";
@@ -215,7 +219,7 @@ export function SettingsSectionCards(props: Props) {
     { id: "backend-customer-logins", title: "End-user accounts", desc: "Customer logins for your custom frontend" },
     { id: "backend-features", title: "Feature flags", desc: "Enable or disable customer-facing features" },
     { id: "backend-webhooks", title: "Webhooks", desc: "Receive entity and event notifications" },
-    { id: "backend-locale", title: "Locale & format", desc: "Date and number format for the dashboard" },
+    { id: "backend-locale", title: "Locale & format", desc: "Locale, timezone, and number format for the dashboard" },
     { id: "email-notifications", title: "Email notifications", desc: "Opt-in emails for approvals, payments, webhook failures" },
     { id: "consent-types", title: "Consent types", desc: "GDPR-style consent type labels (e.g. marketing, essential). Manage records on Consent page." },
   ];
@@ -336,6 +340,7 @@ export function SettingsSectionCards(props: Props) {
     currentEmailFromName={currentEmailFromName}
     currentEmailReplyTo={currentEmailReplyTo}
     currentLocale={currentLocale}
+    currentTimeZone={currentTimeZone}
     featureFlags={props.featureFlags}
     apiKeys={props.apiKeys}
     createApiKeyAction={props.createApiKeyAction}
@@ -439,6 +444,7 @@ function SectionModalContent(
     currentEmailFromName?: string;
     currentEmailReplyTo?: string;
     currentLocale?: string;
+    currentTimeZone?: string;
     featureFlags?: { myOrders: boolean; refunds: boolean };
     apiKeys?: { id: string; name: string; keyPrefix: string; lastUsedAt: Date | null; createdAt: Date }[];
     createApiKeyAction?: (prev: unknown, formData: FormData) => Promise<{ key?: string; error?: string }>;
@@ -592,7 +598,9 @@ function SectionModalContent(
     return (
       <BackendLocaleForm
         updateAction={props.updateAction}
+        extraFormFields={props.extraFormFields}
         currentLocale={props.currentLocale ?? ""}
+        currentTimeZone={props.currentTimeZone ?? "UTC"}
       />
     );
   }
@@ -1438,18 +1446,26 @@ function BackendLocaleForm({
   updateAction,
   extraFormFields,
   currentLocale,
+  currentTimeZone,
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
   extraFormFields?: Record<string, string>;
   currentLocale: string;
+  currentTimeZone: string;
 }) {
   const [state, formAction] = useActionState(updateAction, null);
+  const presetValues = new Set(TENANT_TIME_ZONE_PRESETS.map((p) => p.value));
+  const timeZoneOptions =
+    currentTimeZone && !presetValues.has(currentTimeZone)
+      ? [{ value: currentTimeZone, label: currentTimeZone }, ...TENANT_TIME_ZONE_PRESETS]
+      : TENANT_TIME_ZONE_PRESETS;
   return (
     <form action={formAction} className="settings-form">
       <FormExtraFields fields={extraFormFields} />
       <input type="hidden" name="settingsSection" value="backend-locale" />
       <p className="settings-hint" style={{ marginBottom: "1rem" }}>
-        Date and number format for the dashboard. Leave default to use browser locale.
+        Locale controls how dates and numbers are written. Time zone controls which calendar day is &quot;today&quot; for
+        deadline highlights and overdue sorting on lists and exports.
       </p>
       <div className="form-group">
         <label htmlFor="modal-locale">Locale</label>
@@ -1458,6 +1474,19 @@ function BackendLocaleForm({
             <option key={o.value || "default"} value={o.value}>{o.label}</option>
           ))}
         </select>
+      </div>
+      <div className="form-group">
+        <label htmlFor="modal-timezone">Time zone</label>
+        <select id="modal-timezone" name="timeZone" className="form-control" defaultValue={currentTimeZone}>
+          {timeZoneOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <p className="settings-hint" style={{ marginTop: "0.35rem", marginBottom: 0 }}>
+          IANA name (e.g. America/Chicago). Used for everyone on this tenant.
+        </p>
       </div>
       {state && typeof state === "object" && "error" in state ? (
         <p className="view-error" role="alert">{String((state as { error: string }).error)}</p>

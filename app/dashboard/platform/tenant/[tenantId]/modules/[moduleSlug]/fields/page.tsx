@@ -3,9 +3,11 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { sqlEntityDataKeyHasMeaningfulValue } from "@/lib/entity-data-field-measure";
 import { isPlatformAdmin } from "@/lib/developer-setup";
 import {
   addFieldToModuleAsPlatformAdminFormAction,
+  clearModuleFieldValuesForAllEntitiesAsPlatformAdminFormAction,
   updateFieldInModuleAsPlatformAdminFormAction,
   removeFieldFromModuleAsPlatformAdminFormAction,
   reorderFieldInModuleAsPlatformAdminFormAction,
@@ -58,7 +60,7 @@ export default async function PlatformTenantModuleFieldsPage({
   await Promise.all(
     module_.fields.map(async (f) => {
       const rows = await prisma.$queryRaw<[{ count: bigint }]>(
-        Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND (data ? ${f.slug})`
+        Prisma.sql`SELECT COUNT(*)::bigint as count FROM entities WHERE module_id = (${module_.id})::uuid AND deleted_at IS NULL AND ${sqlEntityDataKeyHasMeaningfulValue(f.slug)}`
       );
       recordCountByFieldId.set(f.id, Number(rows[0]?.count ?? 0));
     })
@@ -80,7 +82,8 @@ export default async function PlatformTenantModuleFieldsPage({
         </div>
       </div>
       <p className="settings-intro" style={{ marginBottom: "1.5rem" }}>
-        Tenant: <strong>{tenant.name ?? tenant.slug}</strong>. Add, reorder, or remove fields. You cannot remove a field if any record has a value for it.
+        Tenant: <strong>{tenant.name ?? tenant.slug}</strong>. Add, reorder, or remove fields. You cannot remove a field or change its type while records still store a non-empty value. Use{" "}
+        <strong>Clear values</strong> on a field to wipe that key everywhere (including booleans and soft-deleted records), then you can change type or remove it.
       </p>
 
       <section style={{ marginBottom: "2rem" }}>
@@ -161,6 +164,7 @@ export default async function PlatformTenantModuleFieldsPage({
                   updateFormAction={updateFieldInModuleAsPlatformAdminFormAction}
                   extraFormFields={extraFormFields}
                   fieldRecordCount={recordCountByFieldId.get(field.id) ?? 0}
+                  clearFieldValuesAction={clearModuleFieldValuesForAllEntitiesAsPlatformAdminFormAction}
                   otherModules={otherModules.map((m) => ({
                     slug: m.slug,
                     name: m.name,

@@ -68,6 +68,8 @@ export function ViewSelector({
   selectFieldsMeta,
   relationFieldSlugs,
   relationFieldsMeta,
+  tenantUserFieldSlugs,
+  tenantUserFieldsMeta,
   dateFieldSlugs,
   defaultViewId,
   setDefaultViewAction,
@@ -84,6 +86,8 @@ export function ViewSelector({
   selectFieldsMeta?: { slug: string; name: string; options: string[] }[];
   relationFieldSlugs?: string[];
   relationFieldsMeta?: { slug: string; name: string; options: { id: string; label: string }[] }[];
+  tenantUserFieldSlugs?: string[];
+  tenantUserFieldsMeta?: { slug: string; name: string; options: { id: string; label: string }[] }[];
   dateFieldSlugs?: string[];
   defaultViewId?: string | null;
   setDefaultViewAction?: (moduleSlug: string, viewId: string | null) => Promise<{ error?: string }>;
@@ -191,6 +195,8 @@ export function ViewSelector({
                       selectFieldsMeta={selectFieldsMeta ?? []}
                       relationFieldSlugs={relationFieldSlugs ?? []}
                       relationFieldsMeta={relationFieldsMeta ?? []}
+                      tenantUserFieldSlugs={tenantUserFieldSlugs ?? []}
+                      tenantUserFieldsMeta={tenantUserFieldsMeta ?? []}
                       dateFieldSlugs={dateFieldSlugs ?? []}
                       action={updateViewAction.bind(null, editingView.id, moduleSlug)}
                       deleteAction={deleteViewAction.bind(null, editingView.id, moduleSlug)}

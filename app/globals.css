@@ -262,7 +262,7 @@ a[class*="bg-red-600"] {
   background: #f9fafb;
 }
 
-/* Sticky actions column: keeps Edit visible while scrolling wide tables */
+/* Sticky last column while scrolling wide tables */
 .entity-table th:last-child,
 .entity-table td:last-child {
   position: sticky;
@@ -289,6 +289,60 @@ a[class*="bg-red-600"] {
 
 .entity-table tr:hover td {
   background: #f9fafb;
+}
+
+.entity-table-row-clickable {
+  cursor: pointer;
+}
+
+.entity-table-row-clickable:focus-visible {
+  outline: 2px solid var(--dashboard-primary, #0d9488);
+  outline-offset: -2px;
+}
+
+/* Field value highlights (field.settings.highlightRules); list grid uses inner span */
+.field-highlight {
+  border-radius: 6px;
+  border-left: 4px solid var(--field-hl-accent, transparent);
+  background: var(--field-hl-bg, transparent);
+  padding: 0.35rem 0.5rem 0.35rem 0.65rem;
+  margin-bottom: 0;
+}
+
+.field-highlight--blue {
+  --field-hl-bg: #eff6ff;
+  --field-hl-accent: #3b82f6;
+}
+
+.field-highlight--green {
+  --field-hl-bg: #f0fdf4;
+  --field-hl-accent: #16a34a;
+}
+
+.field-highlight--amber {
+  --field-hl-bg: #fffbeb;
+  --field-hl-accent: #d97706;
+}
+
+.field-highlight--red {
+  --field-hl-bg: #fef2f2;
+  --field-hl-accent: #dc2626;
+}
+
+.field-highlight--gray {
+  --field-hl-bg: #f8fafc;
+  --field-hl-accent: #94a3b8;
+}
+
+.entity-table-cell-highlight.field-highlight {
+  display: inline-block;
+  max-width: 100%;
+  box-sizing: border-box;
+  vertical-align: middle;
+}
+
+.entity-table tr:hover td .entity-table-cell-highlight.field-highlight {
+  background: var(--field-hl-bg);
 }
 
 .entity-list-cell-image,
@@ -2742,6 +2796,10 @@ a[class*="bg-red-600"] {
   text-decoration: none;
 }
 
+.dashboard-overview-deadline-row:hover {
+  background: #f8fafc;
+}
+
 .dashboard-module-tile-label {
   min-width: 0;
   max-width: 100%;
@@ -2919,6 +2977,33 @@ a[class*="bg-red-600"] {
 }
 
 /* Activity / audit */
+.activity-details {
+  margin: 0;
+}
+
+.activity-details-summary {
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #374151;
+  list-style-position: outside;
+  padding-inline-start: 0.35rem;
+  user-select: none;
+}
+
+.activity-details-summary::-webkit-details-marker {
+  color: #94a3b8;
+}
+
+.activity-details[open] .activity-details-summary {
+  margin-bottom: 0.75rem;
+}
+
+.activity-details-count {
+  font-weight: 500;
+  color: #64748b;
+}
+
 .activity-list {
   list-style: none;
   padding: 0;

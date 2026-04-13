@@ -1,6 +1,10 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
+import {
+  ACTIVITY_FIELD_DEFAULT_PREVIEW_LIMIT,
+  ACTIVITY_FIELD_MAX_PREVIEW_LIMIT,
+} from "@/lib/activity-field";
 
 export type OtherModuleForFields = {
   slug: string;
@@ -60,22 +64,83 @@ export function AddFieldForm({
           <option value="date">Date</option>
           <option value="boolean">Boolean</option>
           <option value="select">Select (options)</option>
+          <option value="tenant-user">Team user (workspace member)</option>
           <option value="relation">Relation (single)</option>
           <option value="relation-multi">Relation (multiple)</option>
           <option value="file">File</option>
           <option value="json">JSON</option>
+          <option value="activity">Activity (read-only on record)</option>
         </select>
       </div>
+      {fieldType !== "activity" && (
+        <div className="form-group">
+          <label className="subscription-check-label">
+            <input type="checkbox" name="isRequired" value="1" />
+            Required
+          </label>
+        </div>
+      )}
       <div className="form-group">
         <label className="subscription-check-label">
-          <input type="checkbox" name="isRequired" value="1" />
-          Required
+          <input type="checkbox" name="showInEntityList" value="1" defaultChecked />
+          Show in module record list (table and CSV export)
         </label>
+        <p style={{ fontSize: "0.8125rem", color: "#64748b", marginTop: "0.35rem", marginBottom: 0 }}>
+          Uncheck for internal fields you only want on the record edit page.
+        </p>
       </div>
-      <div className="form-group" id="options-group">
-        <label htmlFor="options">Options (for Select, comma-separated)</label>
-        <input id="options" name="options" type="text" placeholder="Draft, Active, Done" />
-      </div>
+      {fieldType === "date" && (
+        <div className="form-group">
+          <label className="subscription-check-label">
+            <input type="checkbox" name="deadline" value="1" />
+            Treat as deadline (contributes to list / export priority order)
+          </label>
+          <div style={{ marginTop: "0.75rem", marginLeft: "0.25rem" }}>
+            <label htmlFor="new-field-deadline-list-days" style={{ display: "block", marginBottom: "0.35rem" }}>
+              List priority window (days)
+            </label>
+            <input
+              id="new-field-deadline-list-days"
+              name="deadlineListDaysAhead"
+              type="number"
+              min={0}
+              max={3650}
+              step={1}
+              className="form-control"
+              style={{ maxWidth: "12rem" }}
+              placeholder="Blank = overdue only"
+            />
+            <p style={{ fontSize: "0.8125rem", color: "#64748b", marginTop: "0.35rem", marginBottom: 0 }}>
+              Only applies when the deadline checkbox is checked. Same rules as when editing a field (blank / 0 / N).
+            </p>
+          </div>
+        </div>
+      )}
+      {fieldType === "select" && (
+        <div className="form-group" id="options-group">
+          <label htmlFor="options">Options (for Select, comma-separated)</label>
+          <input id="options" name="options" type="text" placeholder="Draft, Active, Done" />
+        </div>
+      )}
+      {fieldType === "activity" && (
+        <div className="form-group">
+          <label htmlFor="new-field-activity-limit">Events to show on the record form</label>
+          <input
+            id="new-field-activity-limit"
+            name="activityLimit"
+            type="number"
+            min={1}
+            max={ACTIVITY_FIELD_MAX_PREVIEW_LIMIT}
+            step={1}
+            className="form-control"
+            style={{ maxWidth: "12rem" }}
+            placeholder={`Default ${ACTIVITY_FIELD_DEFAULT_PREVIEW_LIMIT}`}
+          />
+          <p style={{ fontSize: "0.8125rem", color: "#64748b", marginTop: "0.35rem", marginBottom: 0 }}>
+            Blank = {ACTIVITY_FIELD_DEFAULT_PREVIEW_LIMIT} recent audit events (max {ACTIVITY_FIELD_MAX_PREVIEW_LIMIT}).
+          </p>
+        </div>
+      )}
       {showRelationSettings && (
         <>
           <div className="form-group" id="target-module-group">
