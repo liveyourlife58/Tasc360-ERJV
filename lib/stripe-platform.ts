@@ -5,7 +5,6 @@
 
 import Stripe from "stripe";
 import { prisma } from "./prisma";
-import { getBillingConfig } from "./billing";
 import { getTrialDays } from "./app-config";
 
 function getStripe(): Stripe {
@@ -126,8 +125,32 @@ export async function syncTenantSubscriptionFromCheckoutSession(sessionId: strin
   const session = await stripe.checkout.sessions.retrieve(sessionId, {
     expand: ["subscription"],
   });
-  const subId = session.subscription as string | undefined;
-  if (subId) await syncTenantSubscriptionFromStripe(subId);
+  const raw = session.subscription;
+  // With expand: ["subscription"], Stripe returns a full Subscription object, not sub_xxx string.
+  if (typeof raw === "object" && raw !== null && "id" in raw) {
+    await applyStripeSubscriptionToTenant(raw as Stripe.Subscription);
+    return;
+  }
+  if (typeof raw === "string" && raw.length > 0) {
+    await syncTenantSubscriptionFromStripe(raw);
+  }
+}
+
+/** Persist subscription fields from a Stripe Subscription object (expanded session or API retrieve). */
+async function applyStripeSubscriptionToTenant(sub: Stripe.Subscription): Promise<{ tenantId: string } | null> {
+  const tenantId = sub.metadata?.tenantId;
+  if (!tenantId || typeof tenantId !== "string") return null;
+  const periodEnd = sub.current_period_end;
+  await prisma.tenant.update({
+    where: { id: tenantId },
+    data: {
+      stripeSubscriptionId: sub.id,
+      subscriptionStatus: sub.status,
+      subscriptionCurrentPeriodEnd:
+        typeof periodEnd === "number" ? new Date(periodEnd * 1000) : null,
+    },
+  });
+  return { tenantId };
 }
 
 /** Sync tenant subscription fields from Stripe subscription (e.g. after webhook). */
@@ -136,20 +159,7 @@ export async function syncTenantSubscriptionFromStripe(
 ): Promise<{ tenantId: string } | null> {
   const stripe = getStripe();
   const sub = await stripe.subscriptions.retrieve(subscriptionId);
-  const tenantId = sub.metadata?.tenantId;
-  if (!tenantId) return null;
-  const subData = sub as { id: string; status: string; current_period_end?: number };
-  await prisma.tenant.update({
-    where: { id: tenantId },
-    data: {
-      stripeSubscriptionId: subData.id,
-      subscriptionStatus: subData.status,
-      subscriptionCurrentPeriodEnd: subData.current_period_end
-        ? new Date(subData.current_period_end * 1000)
-        : null,
-    },
-  });
-  return { tenantId };
+  return applyStripeSubscriptionToTenant(sub);
 }
 
 /** Clear subscription when canceled/deleted. */
