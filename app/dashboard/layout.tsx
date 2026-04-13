@@ -5,6 +5,7 @@ import { getDashboardSettings } from "@/lib/dashboard-settings";
 import { getSubscriptionGraceDays } from "@/lib/app-config";
 import { getAllowDeveloperSetup, isPlatformAdmin } from "@/lib/developer-setup";
 import { getDashboardFeatures, DASHBOARD_PATH_TO_FEATURE } from "@/lib/dashboard-features";
+import { resolveDashboardLandingPath } from "@/lib/resolve-dashboard-landing";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { DashboardSidebarToggle } from "@/components/dashboard/DashboardSidebarToggle";
@@ -32,11 +33,27 @@ export default async function DashboardLayout({
   const dashboardFeatures = getDashboardFeatures(tenant?.settings ?? null);
   const allowDeveloperSetup = getAllowDeveloperSetup(tenant?.settings ?? null);
   const showDeveloperLinks = allowDeveloperSetup && hasDeveloperPermission;
-  const showPlatformAdminLink = isPlatformAdmin(user?.email ?? null);
+  const platformAdmin = isPlatformAdmin(user?.email ?? null);
+  const showPlatformAdminLink = platformAdmin;
   const primaryColor =
     dashboardSettings.branding?.primaryColor ?? "#0d9488";
 
-  const isSubscriptionPage = pathname === "/dashboard/subscription" || pathname.startsWith("/dashboard/subscription/");
+  const pathNoQuery = pathname.replace(/\?.*$/, "").replace(/\/$/, "") || "/dashboard";
+  if (pathNoQuery === "/dashboard" && !dashboardFeatures.workspaceHome) {
+    redirect(
+      await resolveDashboardLandingPath(prisma, {
+        tenantId,
+        tenantSettings: tenant?.settings ?? null,
+        dashboardFeatures,
+        platformAdmin,
+      })
+    );
+  }
+  const isTeamBillingPage =
+    pathNoQuery === "/dashboard/team" ||
+    pathNoQuery.startsWith("/dashboard/team/") ||
+    pathNoQuery === "/dashboard/subscription" ||
+    pathNoQuery.startsWith("/dashboard/subscription/");
   const allowedStatuses = ["active", "trialing"];
   const graceDays = getSubscriptionGraceDays();
   const periodEnd = tenant?.subscriptionCurrentPeriodEnd ? new Date(tenant.subscriptionCurrentPeriodEnd) : null;
@@ -49,16 +66,51 @@ export default async function DashboardLayout({
     allowedStatuses.includes(tenant!.subscriptionStatus!) ||
     isPastDueWithGrace;
 
-  if (!isSubscriptionPage && !isAllowed) {
-    redirect(dashboardFeatures.subscription ? "/dashboard/subscription?gated=1" : "/dashboard");
+  if (!isTeamBillingPage && !isAllowed) {
+    redirect(
+      dashboardFeatures.teamBilling
+        ? "/dashboard/team?gated=1"
+        : await resolveDashboardLandingPath(prisma, {
+            tenantId,
+            tenantSettings: tenant?.settings ?? null,
+            dashboardFeatures,
+            platformAdmin,
+          })
+    );
   }
 
-  const pathWithoutQuery = pathname.replace(/\?.*$/, "").replace(/\/$/, "") || "/dashboard";
-  const featureForPath = (Object.entries(DASHBOARD_PATH_TO_FEATURE) as [string, keyof typeof dashboardFeatures][]).find(
-    ([path]) => pathWithoutQuery === path || pathWithoutQuery.startsWith(path + "/")
-  )?.[1];
-  if (featureForPath && !dashboardFeatures[featureForPath]) {
-    redirect("/dashboard");
+  const pathWithoutQuery = pathNoQuery;
+  if (isTeamBillingPage) {
+    if (!dashboardFeatures.teamBilling) {
+      redirect(
+        dashboardFeatures.workspaceHome
+          ? "/dashboard"
+          : await resolveDashboardLandingPath(prisma, {
+              tenantId,
+              tenantSettings: tenant?.settings ?? null,
+              dashboardFeatures,
+              platformAdmin,
+            })
+      );
+    }
+  } else {
+    const featureForPath = (Object.entries(DASHBOARD_PATH_TO_FEATURE) as [string, keyof typeof dashboardFeatures][]).find(
+      ([path]) => pathWithoutQuery === path || pathWithoutQuery.startsWith(path + "/")
+    )?.[1];
+    if (featureForPath && !dashboardFeatures[featureForPath]) {
+      if (!(platformAdmin && featureForPath === "settings")) {
+        redirect(
+          dashboardFeatures.workspaceHome
+            ? "/dashboard"
+            : await resolveDashboardLandingPath(prisma, {
+                tenantId,
+                tenantSettings: tenant?.settings ?? null,
+                dashboardFeatures,
+                platformAdmin,
+              })
+        );
+      }
+    }
   }
 
   return (
@@ -79,7 +131,7 @@ export default async function DashboardLayout({
         {isPastDueWithGrace && (
           <div className="flex flex-wrap items-center gap-3 p-4 mb-4 bg-amber-100 text-amber-900 rounded-lg border border-amber-200" role="alert">
             <span className="flex-1 min-w-0">Your payment is past due. Please update your payment method to avoid losing access.</span>
-            <a href="/dashboard/subscription" className="shrink-0 inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium text-white bg-teal-600 hover:bg-teal-700 transition-colors">
+            <a href="/dashboard/team" className="shrink-0 inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium text-white bg-teal-600 hover:bg-teal-700 transition-colors">
               Update payment method
             </a>
           </div>

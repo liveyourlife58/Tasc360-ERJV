@@ -19,14 +19,15 @@ const linkActive = "bg-teal-100 text-teal-800 font-medium hover:bg-teal-100";
 
 const DEFAULT_DASHBOARD_FEATURES: DashboardFeatures = {
   help: true,
+  workspaceHome: true,
   approvals: true,
   activity: true,
   consent: true,
   finance: true,
   integrations: true,
-  team: true,
-  subscription: true,
+  teamBilling: true,
   settings: true,
+  customerSite: true,
 };
 
 export async function Sidebar({
@@ -77,12 +78,14 @@ export async function Sidebar({
             Workspace
           </span>
           <nav className="flex flex-col gap-0.5">
-            <Link
-              href="/dashboard"
-              className={`${linkBase} ${isActive("/dashboard", pathname) ? linkActive : ""}`}
-            >
-              Dashboard
-            </Link>
+            {dashboardFeatures.workspaceHome && (
+              <Link
+                href="/dashboard"
+                className={`${linkBase} ${isActive("/dashboard", pathname) ? linkActive : ""}`}
+              >
+                Dashboard
+              </Link>
+            )}
             {orderedModules.map((m) => {
               const href = `/dashboard/m/${m.slug}`;
               return (
@@ -132,17 +135,17 @@ export async function Sidebar({
                 Integrations
               </Link>
             )}
-            {dashboardFeatures.team && (
-              <Link href="/dashboard/team" className={`${linkBase} ${isActive("/dashboard/team", pathname) ? linkActive : ""}`}>
-                Team
+            {dashboardFeatures.teamBilling && (
+              <Link
+                href="/dashboard/team"
+                className={`${linkBase} ${
+                  isActive("/dashboard/team", pathname) || isActive("/dashboard/subscription", pathname) ? linkActive : ""
+                }`}
+              >
+                Team &amp; billing
               </Link>
             )}
-            {dashboardFeatures.subscription && (
-              <Link href="/dashboard/subscription" className={`${linkBase} ${isActive("/dashboard/subscription", pathname) ? linkActive : ""}`}>
-                Subscription &amp; billing
-              </Link>
-            )}
-            {dashboardFeatures.settings && (
+            {(dashboardFeatures.settings || showPlatformAdminLink) && (
               <Link href="/dashboard/settings" className={`${linkBase} ${isActive("/dashboard/settings", pathname) ? linkActive : ""}`}>
                 Settings
               </Link>
@@ -156,7 +159,7 @@ export async function Sidebar({
         </div>
       </div>
       <div className="mt-auto pt-4 border-t border-slate-200 p-4 flex flex-col gap-0.5">
-        {tenantSlug && (
+        {tenantSlug && dashboardFeatures.customerSite && (
           <a
             href={`/s/${tenantSlug}`}
             target="_blank"

@@ -1,4 +1,5 @@
 import { getTenantBySlug, getPublicModuleBySegment } from "@/lib/tenant";
+import { isCustomerSiteEnabled } from "@/lib/dashboard-features";
 import { getSiteMeta, getCanonicalUrl, getBaseUrlForSitemap } from "@/lib/site-seo";
 import { prisma } from "@/lib/prisma";
 import { headers } from "next/headers";
@@ -24,7 +25,7 @@ export async function GET(
   }
 
   const tenant = await getTenantBySlug(slug);
-  if (!tenant) return new Response("Not found", { status: 404 });
+  if (!tenant || !isCustomerSiteEnabled(tenant.settings)) return new Response("Not found", { status: 404 });
 
   const module_ = await getPublicModuleBySegment(tenant.id, tenant.settings, segment);
   if (!module_) return new Response("Not found", { status: 404 });

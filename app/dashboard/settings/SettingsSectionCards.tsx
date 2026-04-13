@@ -7,6 +7,17 @@ import { GenerateSiteAiForm } from "./GenerateSiteAiForm";
 import { BlobUploadInput } from "@/components/dashboard/BlobUploadInput";
 import { DashboardModulesHubPanel } from "@/components/dashboard/DashboardModulesHubPanel";
 import { TENANT_TIME_ZONE_PRESETS } from "@/lib/tenant-timezone";
+import {
+  DASHBOARD_FEATURE_KEYS,
+  getDashboardFeatures,
+  type DashboardFeatureKey,
+  type DashboardFeatures,
+} from "@/lib/dashboard-features";
+import {
+  SETTINGS_HUB_GROUPS,
+  getSectionMeta,
+  type SettingsHubSectionId,
+} from "@/lib/dashboard-settings-sections";
 
 type Branding = { name?: string; logo?: string; primaryColor?: string };
 type Home =
@@ -14,28 +25,7 @@ type Home =
   | { type: "view"; moduleSlug: string; viewId: string }
   | undefined;
 
-type SectionId =
-  | "customer-ai"
-  | "customer-contact"
-  | "customer-hero"
-  | "customer-sidebar"
-  | "customer-modules"
-  | "customer-seo"
-  | "customer-waitlist"
-  | "customer-footer"
-  | "customer-cookie-banner"
-  | "backend-branding"
-  | "backend-home"
-  | "backend-modules-hub"
-  | "backend-payments"
-  | "backend-api"
-  | "backend-customer-logins"
-  | "backend-features"
-  | "backend-webhooks"
-  | "backend-locale"
-  | "email-notifications"
-  | "consent-types"
-  | "platform-dashboard-features";
+type SectionId = SettingsHubSectionId | "platform-dashboard-features";
 
 const SECTION_TITLES: Record<SectionId, string> = {
   "customer-ai": "Homepage Text",
@@ -144,12 +134,10 @@ type Props = {
   allowDeveloperSetup?: boolean;
   updateAllowDeveloperSetupFormAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
   /** Platform admin only: enable/disable dashboard areas for this tenant. */
-  dashboardFeatures?: { help: boolean; approvals: boolean; activity: boolean; consent: boolean; finance: boolean; integrations: boolean; team: boolean; subscription: boolean; settings: boolean };
+  dashboardFeatures?: DashboardFeatures;
   /** Same order as dashboard home / sidebar (templates, AI, import/export, shortcuts). */
   hubOrderedModules: { id: string; name: string; slug: string }[];
 };
-
-const DEVELOPER_SECTION_IDS: SectionId[] = ["backend-api", "backend-webhooks"];
 
 export function SettingsSectionCards(props: Props) {
   const [openSection, setOpenSection] = useState<SectionId | null>(null);
@@ -195,81 +183,60 @@ export function SettingsSectionCards(props: Props) {
   const homeModuleSlug = home?.type ? home.moduleSlug : "";
   const homeViewId = home?.type === "view" ? home.viewId : "";
 
-  const customerSections: { id: SectionId; title: string; desc: string }[] = [
-    { id: "customer-ai", title: "Homepage Text", desc: "Site name, tagline & homepage copy" },
-    { id: "customer-contact", title: "Contact", desc: "Contact page: email, phone, address for the public site" },
-    { id: "customer-hero", title: "Homepage hero image", desc: "Optional banner image URL" },
-    { id: "customer-sidebar", title: "Homepage right column", desc: "Entity list sidebar" },
-    { id: "customer-modules", title: "Public modules", desc: "Which modules appear on the public site" },
-    { id: "customer-seo", title: "SEO", desc: "Meta title, description, social image & canonical URL" },
-    { id: "customer-waitlist", title: "Waitlist", desc: "When events are sold out, visitors can join a waitlist" },
-    { id: "customer-footer", title: "Footer", desc: "Custom footer HTML for the customer site" },
-    { id: "customer-cookie-banner", title: "Cookie banner", desc: "Show a cookie consent banner on the customer site" },
-  ];
-  const allBackendSections: { id: SectionId; title: string; desc: string }[] = [
-    { id: "backend-branding", title: "Branding", desc: "Dashboard name, logo, primary color" },
-    { id: "backend-home", title: "Default home", desc: "Where to go after login" },
-    {
-      id: "backend-modules-hub",
-      title: "Modules & data",
-      desc: "Templates, AI builder, import/export, and links to your modules",
-    },
-    { id: "backend-payments", title: "Payments (Stripe)", desc: "Accept payments from your customers" },
-    { id: "backend-api", title: "API access", desc: "API keys for REST API" },
-    { id: "backend-customer-logins", title: "End-user accounts", desc: "Customer logins for your custom frontend" },
-    { id: "backend-features", title: "Feature flags", desc: "Enable or disable customer-facing features" },
-    { id: "backend-webhooks", title: "Webhooks", desc: "Receive entity and event notifications" },
-    { id: "backend-locale", title: "Locale & format", desc: "Locale, timezone, and number format for the dashboard" },
-    { id: "email-notifications", title: "Email notifications", desc: "Opt-in emails for approvals, payments, webhook failures" },
-    { id: "consent-types", title: "Consent types", desc: "GDPR-style consent type labels (e.g. marketing, essential). Manage records on Consent page." },
-  ];
+  /** Stored tenant flags — used as-is for the “Dashboard features” form checkboxes. */
+  const rawDashboardFeatures = props.dashboardFeatures ?? getDashboardFeatures(null);
+  /** Hub card visibility: platform admins always see Settings-backed cards regardless of tenant flag. */
+  const df =
+    props.isPlatformAdmin === true ? { ...rawDashboardFeatures, settings: true } : rawDashboardFeatures;
   const showDeveloperSections = props.showDeveloperSections ?? false;
-  const backendSections = showDeveloperSections
-    ? allBackendSections
-    : allBackendSections.filter((s) => !DEVELOPER_SECTION_IDS.includes(s.id));
   const extraFormFields = props.extraFormFields;
+
+  const sectionVisible = (id: SettingsHubSectionId): boolean => {
+    const meta = getSectionMeta(id);
+    if (!meta) return false;
+    if (meta.developerOnly && !showDeveloperSections) return false;
+    return df[meta.feature];
+  };
 
   return (
     <>
-      <div className="settings-cards-group">
-        <h2 className="settings-cards-group-title">Customer site</h2>
-        <div className="settings-cards settings-subcards">
-          {customerSections.map(({ id, title, desc }) => (
-            <button
-              key={id}
-              type="button"
-              className="settings-card settings-subcard"
-              onClick={() => setOpenSection(id)}
-            >
-              <h3 className="settings-card-title">{title}</h3>
-              <p className="settings-card-desc">{desc}</p>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="settings-cards-group">
-        <h2 className="settings-cards-group-title">Dashboard & backend</h2>
-        {props.isPlatformAdmin && props.updateAllowDeveloperSetupFormAction && (
-          <DeveloperSetupToggle
-            allowDeveloperSetup={props.allowDeveloperSetup ?? false}
-            formAction={props.updateAllowDeveloperSetupFormAction}
-            extraFormFields={extraFormFields}
-          />
-        )}
-        <div className="settings-cards settings-subcards">
-          {backendSections.map(({ id, title, desc }) => (
-            <button
-              key={id}
-              type="button"
-              className="settings-card settings-subcard"
-              onClick={() => setOpenSection(id)}
-            >
-              <h3 className="settings-card-title">{title}</h3>
-              <p className="settings-card-desc">{desc}</p>
-            </button>
-          ))}
-        </div>
-      </div>
+      {SETTINGS_HUB_GROUPS.map((group) => {
+        const visibleIds = group.ids.filter((id) => sectionVisible(id));
+        const isWorkspace = group.title === "Workspace";
+        const showDeveloperToggle =
+          isWorkspace && props.isPlatformAdmin && props.updateAllowDeveloperSetupFormAction;
+        if (visibleIds.length === 0 && !showDeveloperToggle) return null;
+        return (
+          <div key={group.title} className="settings-cards-group">
+            <h2 className="settings-cards-group-title">{group.title}</h2>
+            {showDeveloperToggle && props.updateAllowDeveloperSetupFormAction && (
+              <DeveloperSetupToggle
+                allowDeveloperSetup={props.allowDeveloperSetup ?? false}
+                formAction={props.updateAllowDeveloperSetupFormAction}
+                extraFormFields={extraFormFields}
+              />
+            )}
+            {visibleIds.length > 0 ? (
+              <div className="settings-cards settings-subcards">
+                {visibleIds.map((id) => {
+                  const meta = getSectionMeta(id)!;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className="settings-card settings-subcard"
+                      onClick={() => setOpenSection(id)}
+                    >
+                      <h3 className="settings-card-title">{meta.title}</h3>
+                      <p className="settings-card-desc">{meta.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
 
       {props.isPlatformAdmin && (
         <div className="settings-cards-group">
@@ -284,7 +251,9 @@ export function SettingsSectionCards(props: Props) {
               onClick={() => setOpenSection("platform-dashboard-features")}
             >
               <h3 className="settings-card-title">Dashboard features</h3>
-              <p className="settings-card-desc">Show or hide Help, Approvals, Activity, Consent, Finance, Integrations, Team, Subscription in the tenant sidebar.</p>
+              <p className="settings-card-desc">
+                Show or hide workspace areas (sidebar, home summaries, deadline list, settings sections, and public site) for this tenant.
+              </p>
             </button>
           </div>
         </div>
@@ -457,13 +426,13 @@ function SectionModalContent(
     sendEndUserPasswordResetFormAction?: (formData: FormData) => Promise<void>;
     currentConsentTypes?: string[];
     updateConsentTypesFormAction?: (prev: unknown, formData: FormData) => Promise<{ error?: string }>;
-    dashboardFeatures?: { help: boolean; approvals: boolean; activity: boolean; consent: boolean; finance: boolean; integrations: boolean; team: boolean; subscription: boolean; settings: boolean };
+    dashboardFeatures?: DashboardFeatures;
     hubOrderedModules: { id: string; name: string; slug: string }[];
   }
 ) {
   const { sectionId } = props;
   if (sectionId === "platform-dashboard-features") {
-    const features = props.dashboardFeatures ?? { help: true, approvals: true, activity: true, consent: true, finance: true, integrations: true, team: true, subscription: true, settings: true };
+    const features = props.dashboardFeatures ?? getDashboardFeatures(null);
     return (
       <PlatformDashboardFeaturesForm
         key={`dashboard-features-${JSON.stringify(features)}`}
@@ -632,16 +601,17 @@ function SectionModalContent(
   return null;
 }
 
-const DASHBOARD_FEATURE_LABELS: Record<string, string> = {
+const DASHBOARD_FEATURE_LABELS: Record<DashboardFeatureKey, string> = {
   help: "Help",
+  workspaceHome: "Workspace home (/dashboard summary)",
   approvals: "Approvals",
   activity: "Activity",
   consent: "Consent",
   finance: "Finance",
   integrations: "Integrations",
-  team: "Team",
-  subscription: "Subscription & billing",
+  teamBilling: "Team & billing (plan, team, roles)",
   settings: "Settings",
+  customerSite: "Customer site (public at /s/your-slug)",
 };
 
 function PlatformDashboardFeaturesForm({
@@ -651,20 +621,22 @@ function PlatformDashboardFeaturesForm({
 }: {
   updateAction: (prev: unknown, formData: FormData) => Promise<unknown>;
   extraFormFields?: Record<string, string>;
-  dashboardFeatures: { help: boolean; approvals: boolean; activity: boolean; consent: boolean; finance: boolean; integrations: boolean; team: boolean; subscription: boolean; settings: boolean };
+  dashboardFeatures: DashboardFeatures;
 }) {
   const [state, formAction] = useActionState(updateAction, null);
-  const keys = ["help", "approvals", "activity", "consent", "finance", "integrations", "team", "subscription", "settings"] as const;
   return (
     <div className="settings-modal-body">
       <p className="settings-hint" style={{ marginBottom: "1rem" }}>
-        When disabled, the corresponding item is hidden from the tenant&apos;s dashboard sidebar and the route is inaccessible.
+        When disabled, the corresponding dashboard item is hidden or the route is inaccessible. Disabling{" "}
+        <strong>Workspace home</strong> sends users to their default module (or first module) instead of the summary page at{" "}
+        <code>/dashboard</code>. Disabling <strong>Customer site</strong> turns off the public site at <code>/s/[slug]</code>{" "}
+        (cart, public modules, contact).
       </p>
       <form action={formAction} className="settings-form">
         <FormExtraFields fields={extraFormFields} />
         <input type="hidden" name="settingsSection" value="dashboard-features" />
         <div className="form-group" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          {keys.map((key) => (
+          {DASHBOARD_FEATURE_KEYS.map((key) => (
             <label key={key} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <input
                 type="checkbox"

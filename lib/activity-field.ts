@@ -2,6 +2,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { formatEntityEventActorLabel } from "@/lib/entity-event-actor";
+import { formatDateTime } from "@/lib/format";
+import { ACTIVITY_SUMMARY_EVENT_SEPARATOR } from "@/lib/activity-summary-constants";
 
 export const ACTIVITY_FIELD_DEFAULT_PREVIEW_LIMIT = 10;
 export const ACTIVITY_FIELD_MAX_PREVIEW_LIMIT = 50;
@@ -33,8 +35,11 @@ export function stripActivityFieldValues(
 export async function loadActivitySummariesForEntities(
   tenantId: string,
   entityIds: string[],
-  activityFields: { slug: string; settings: unknown }[]
+  activityFields: { slug: string; settings: unknown }[],
+  formatOptions?: { locale?: string; timeZone?: string }
 ): Promise<Map<string, Record<string, string>>> {
+  const locale = formatOptions?.locale;
+  const timeZone = formatOptions?.timeZone;
   const out = new Map<string, Record<string, string>>();
   const ids = [...new Set(entityIds.filter((id) => typeof id === "string" && id.trim()))];
   const uniqFields = [...new Map(activityFields.map((f) => [f.slug, f])).values()];
@@ -71,10 +76,11 @@ export async function loadActivitySummariesForEntities(
                     ev.data as Record<string, unknown> | null,
                     ev.createdByUser
                   );
-                  const when = ev.createdAt.toISOString();
-                  return `${ev.eventType.replace(/_/g, " ")} · ${actor} · ${when}`;
+                  const headline = `${ev.eventType.replace(/_/g, " ")} · ${actor}`;
+                  const when = formatDateTime(ev.createdAt, locale, timeZone);
+                  return `${headline}\n${when}`;
                 })
-                .join("\n");
+                .join(ACTIVITY_SUMMARY_EVENT_SEPARATOR);
       }
       out.set(entityId, bySlug);
     })

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, useCallback, useMemo } from "react";
+import { useActionState, useState, useCallback, useMemo, useEffect } from "react";
 import type { BoardLaneSource } from "@/components/dashboard/EntityBoard";
 
 type FilterRow = { field: string; op: string; value: string };
@@ -57,6 +57,32 @@ function filterPickedToAllowedOrder(picked: string[] | undefined, allowedOrdered
   return picked.filter((v) => allowed.has(v));
 }
 
+function buildBoardCardOptions(
+  moduleFieldsMeta: { slug: string; name: string }[] | undefined,
+  fieldSlugs: string[]
+): { slug: string; name: string }[] {
+  if (moduleFieldsMeta && moduleFieldsMeta.length > 0) return moduleFieldsMeta;
+  return fieldSlugs.map((slug) => ({ slug, name: slug }));
+}
+
+function buildInitialBoardCardLabelSlugs(
+  initialLabelSlugs: string[] | undefined,
+  legacyShowAll: boolean,
+  cardSlugs: string[],
+  allowed: string[]
+): string[] {
+  const allowedSet = new Set(allowed);
+  if (initialLabelSlugs && initialLabelSlugs.length > 0) {
+    return initialLabelSlugs.filter(
+      (s) => allowedSet.has(s) && (cardSlugs.length === 0 || cardSlugs.includes(s))
+    );
+  }
+  if (legacyShowAll && cardSlugs.length > 0) {
+    return cardSlugs.filter((s) => allowedSet.has(s));
+  }
+  return [];
+}
+
 export function EditViewForm({
   viewId,
   moduleSlug,
@@ -66,10 +92,14 @@ export function EditViewForm({
   initialBoardColumnField,
   initialBoardLaneSource,
   initialBoardLaneValues,
+  initialBoardCardFieldSlugs = [],
+  initialBoardCardLabelFieldSlugs,
+  initialBoardCardShowLabels = false,
   initialDateField,
   initialFilter = [],
   initialSort = [],
   fieldSlugs,
+  moduleFieldsMeta,
   selectFieldSlugs,
   selectFieldsMeta = [],
   relationFieldSlugs = [],
@@ -88,10 +118,18 @@ export function EditViewForm({
   initialBoardColumnField?: string | null;
   initialBoardLaneSource?: string | null;
   initialBoardLaneValues?: string[] | null;
+  /** Field slugs to show on each Kanban card (in order); empty = first field in module order only. */
+  initialBoardCardFieldSlugs?: string[];
+  /** Which of those slugs show a “Field name:” prefix (saved on the view). */
+  initialBoardCardLabelFieldSlugs?: string[];
+  /** Legacy: when no per-field list, all card lines showed names. Used only for initial state. */
+  initialBoardCardShowLabels?: boolean;
   initialDateField?: string | null;
   initialFilter?: unknown[];
   initialSort?: unknown[];
   fieldSlugs: string[];
+  /** Full module fields for Kanban card picker (order matches Manage fields). Falls back to slugs only. */
+  moduleFieldsMeta?: { slug: string; name: string }[];
   selectFieldSlugs: string[];
   /** Select fields with option lists (for board lane configuration). */
   selectFieldsMeta?: { slug: string; name: string; options: string[] }[];
@@ -152,6 +190,75 @@ export function EditViewForm({
     });
   }, []);
 
+  const boardCardOptions = useMemo(
+    () => buildBoardCardOptions(moduleFieldsMeta, fieldSlugs),
+    [moduleFieldsMeta, fieldSlugs]
+  );
+  const [boardCardPicked, setBoardCardPicked] = useState<string[]>(() =>
+    filterPickedToAllowedOrder(
+      initialBoardCardFieldSlugs,
+      buildBoardCardOptions(moduleFieldsMeta, fieldSlugs).map((o) => o.slug)
+    )
+  );
+
+  const [boardCardLabelSlugs, setBoardCardLabelSlugs] = useState<string[]>(() =>
+    buildInitialBoardCardLabelSlugs(
+      initialBoardCardLabelFieldSlugs,
+      initialBoardCardShowLabels,
+      filterPickedToAllowedOrder(
+        initialBoardCardFieldSlugs,
+        buildBoardCardOptions(moduleFieldsMeta, fieldSlugs).map((o) => o.slug)
+      ),
+      buildBoardCardOptions(moduleFieldsMeta, fieldSlugs).map((o) => o.slug)
+    )
+  );
+
+  const [defaultTitleShowLabel, setDefaultTitleShowLabel] = useState(
+    () => initialBoardCardFieldSlugs.length === 0 && initialBoardCardShowLabels === true
+  );
+
+  useEffect(() => {
+    if (boardCardPicked.length > 0) setDefaultTitleShowLabel(false);
+  }, [boardCardPicked.length]);
+
+  const boardCardLabelHidden = useMemo(() => {
+    if (boardCardPicked.length > 0) {
+      return boardCardLabelSlugs.filter((s) => boardCardPicked.includes(s)).join(", ");
+    }
+    const first = boardCardOptions[0]?.slug;
+    if (defaultTitleShowLabel && first) return first;
+    return "";
+  }, [boardCardPicked, boardCardLabelSlugs, defaultTitleShowLabel, boardCardOptions]);
+
+  const toggleBoardCardSlug = useCallback((slug: string) => {
+    setBoardCardPicked((prev) => {
+      if (prev.includes(slug)) {
+        setBoardCardLabelSlugs((ls) => ls.filter((s) => s !== slug));
+        return prev.filter((s) => s !== slug);
+      }
+      return [...prev, slug];
+    });
+  }, []);
+
+  const toggleBoardCardLabelSlug = useCallback((slug: string) => {
+    setBoardCardLabelSlugs((prev) => {
+      if (prev.includes(slug)) return prev.filter((s) => s !== slug);
+      return [...prev, slug];
+    });
+  }, []);
+
+  const moveBoardCardSlug = useCallback((slug: string, dir: -1 | 1) => {
+    setBoardCardPicked((prev) => {
+      const i = prev.indexOf(slug);
+      if (i < 0) return prev;
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }, []);
+
   const addFilter = useCallback(() => {
     setFilters((prev) => [...prev, { field: fieldSlugs[0] ?? "createdAt", op: "eq", value: "" }]);
   }, [fieldSlugs]);
@@ -195,7 +302,7 @@ export function EditViewForm({
 
   return (
     <div className="edit-view-form-wrap">
-      <form action={formAction} className="settings-form" style={{ maxWidth: 560 }} onSubmit={handleSubmit}>
+      <form action={formAction} className="settings-form edit-view-form" onSubmit={handleSubmit}>
         <input type="hidden" name="filterJson" value="" />
         <input type="hidden" name="sortJson" value="" />
         <div className="form-group">
@@ -279,13 +386,13 @@ export function EditViewForm({
           </div>
         )}
         {viewTypeSt === "board" && boardFieldSt && (
-          <div className="form-group">
-            <span className="form-label-text">Board columns</span>
-            <span className="form-hint" style={{ display: "block", marginBottom: "0.5rem" }}>
-              The unassigned lane (—) still appears only when at least one record has no value for this field.
-            </span>
+          <fieldset className="board-columns-fieldset">
+            <legend className="board-columns-legend">Board columns</legend>
+            <p className="form-hint board-columns-intro">
+              The board reads values from the field above. The <strong>—</strong> (unassigned) lane appears only when at least one record has no value for that field.
+            </p>
             {laneOptions.length === 0 ? (
-              <p style={{ margin: 0, fontSize: "0.875rem", color: "#64748b" }}>
+              <p className="board-columns-empty">
                 {boardFieldIsRelation
                   ? "No related records in the loaded list (up to 200 per target module). Columns follow values that appear on records."
                   : boardFieldIsTenantUser
@@ -293,30 +400,38 @@ export function EditViewForm({
                     : "This field has no select options defined. Columns are derived from values that appear on records."}
               </p>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <label className="subscription-check-label" style={{ fontWeight: 400 }}>
+              <div className="board-lane-mode-list">
+                <label className="board-lane-mode-option">
                   <input
                     type="radio"
                     name="boardLaneSourceUi"
                     checked={laneSourceSt === "data"}
                     onChange={() => setLaneSourceSt("data")}
                   />
-                  Only columns that have at least one card (default)
+                  <span className="board-lane-mode-body">
+                    <span className="board-lane-mode-title">Cards only (default)</span>
+                    <span className="board-lane-mode-desc">Show a lane only when at least one card uses that value.</span>
+                  </span>
                 </label>
-                <label className="subscription-check-label" style={{ fontWeight: 400 }}>
+                <label className="board-lane-mode-option">
                   <input
                     type="radio"
                     name="boardLaneSourceUi"
                     checked={laneSourceSt === "all_options"}
                     onChange={() => setLaneSourceSt("all_options")}
                   />
-                  {boardFieldIsRelation
-                    ? "Always show every related record in the loaded list (up to 200; empty lanes stay visible)"
-                    : boardFieldIsTenantUser
-                      ? "Always show every active team member (empty lanes stay visible)"
-                      : "Always show every select option (empty lanes stay visible)"}
+                  <span className="board-lane-mode-body">
+                    <span className="board-lane-mode-title">All values</span>
+                    <span className="board-lane-mode-desc">
+                      {boardFieldIsRelation
+                        ? "Show every related record from the loaded list (up to 200). Empty lanes stay visible."
+                        : boardFieldIsTenantUser
+                          ? "Show every active team member as a lane. Empty lanes stay visible."
+                          : "Show every select option as a lane. Empty lanes stay visible."}
+                    </span>
+                  </span>
                 </label>
-                <label className="subscription-check-label" style={{ fontWeight: 400 }}>
+                <label className="board-lane-mode-option">
                   <input
                     type="radio"
                     name="boardLaneSourceUi"
@@ -329,83 +444,188 @@ export function EditViewForm({
                       });
                     }}
                   />
-                  {boardFieldIsRelation
-                    ? "Choose which related records appear as columns — order is the list below (reorder with ↑ ↓)"
-                    : boardFieldIsTenantUser
-                      ? "Choose which team members appear as columns — order is the list below (reorder with ↑ ↓)"
-                      : "Choose which options appear as columns — order is the list below (reorder with ↑ ↓)"}
+                  <span className="board-lane-mode-body">
+                    <span className="board-lane-mode-title">Custom</span>
+                    <span className="board-lane-mode-desc">
+                      Pick which values appear as lanes and set left-to-right order below.
+                    </span>
+                  </span>
                 </label>
                 {laneSourceSt === "custom" && (
-                  <div
-                    style={{
-                      marginLeft: "1.5rem",
-                      padding: "0.5rem 0",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "0.35rem",
-                    }}
-                  >
-                    <span className="form-hint" style={{ display: "block", marginBottom: "0.25rem" }}>
-                      Checked columns appear left to right in this order. New checks are added at the bottom; use ↑ ↓ to change order.
-                    </span>
-                    {customPicked.map((value, idx) => {
-                      const opt = laneOptions.find((o) => o.value === value);
-                      const label = opt?.label ?? value;
-                      return (
-                        <div
-                          key={value}
-                          style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}
-                        >
-                          <label className="subscription-check-label" style={{ fontWeight: 400, flex: "1", minWidth: 120 }}>
-                            <input
-                              type="checkbox"
-                              checked
-                              onChange={() => {
-                                setCustomPicked((prev) => prev.filter((x) => x !== value));
-                              }}
-                            />
-                            {label}
-                          </label>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            disabled={idx === 0}
-                            onClick={() => moveCustomPicked(idx, -1)}
-                            aria-label="Move column up"
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            disabled={idx === customPicked.length - 1}
-                            onClick={() => moveCustomPicked(idx, 1)}
-                            aria-label="Move column down"
-                          >
-                            ↓
-                          </button>
-                        </div>
-                      );
-                    })}
-                    {laneOptions
-                      .filter((o) => !customPicked.includes(o.value))
-                      .map((opt) => (
-                        <label key={opt.value} className="subscription-check-label" style={{ fontWeight: 400 }}>
-                          <input
-                            type="checkbox"
-                            checked={false}
-                            onChange={() => {
-                              setCustomPicked((prev) => [...prev, opt.value]);
-                            }}
-                          />
-                          {opt.label}
-                        </label>
-                      ))}
+                  <div className="board-lane-custom">
+                    <div className="board-lane-custom-columns">
+                      <div className="board-lane-custom-heading">Lanes on the board (left → right)</div>
+                      {customPicked.length === 0 && (
+                        <p className="form-hint board-lane-empty-msg">
+                          No lanes yet. Add values from <strong>Not on the board</strong> below.
+                        </p>
+                      )}
+                      <ul className="board-lane-ordered-list" aria-label="Column order">
+                        {customPicked.map((value, idx) => {
+                          const opt = laneOptions.find((o) => o.value === value);
+                          const label = opt?.label ?? value;
+                          return (
+                            <li key={value} className="board-lane-ordered-row">
+                              <span className="board-lane-order-badge" aria-hidden>
+                                {idx + 1}
+                              </span>
+                              <span className="board-lane-order-label">{label}</span>
+                              <span className="board-lane-order-actions">
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  disabled={idx === 0}
+                                  onClick={() => moveCustomPicked(idx, -1)}
+                                  aria-label="Move lane left"
+                                >
+                                  ←
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  disabled={idx === customPicked.length - 1}
+                                  onClick={() => moveCustomPicked(idx, 1)}
+                                  aria-label="Move lane right"
+                                >
+                                  →
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm board-lane-remove-btn"
+                                  onClick={() => {
+                                    setCustomPicked((prev) => prev.filter((x) => x !== value));
+                                  }}
+                                  aria-label={`Remove ${label} from board`}
+                                >
+                                  Remove
+                                </button>
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                    {laneOptions.some((o) => !customPicked.includes(o.value)) && (
+                      <div className="board-lane-custom-available">
+                        <div className="board-lane-custom-heading">Not on the board</div>
+                        <p className="form-hint board-lane-available-hint">Turn on a value to add it at the end of the row; use Move or Remove to adjust.</p>
+                        <ul className="board-lane-available-list">
+                          {laneOptions
+                            .filter((o) => !customPicked.includes(o.value))
+                            .map((opt) => (
+                              <li key={opt.value}>
+                                <label className="board-lane-available-item">
+                                  <input
+                                    type="checkbox"
+                                    checked={false}
+                                    onChange={() => {
+                                      setCustomPicked((prev) => [...prev, opt.value]);
+                                    }}
+                                  />
+                                  <span>{opt.label}</span>
+                                </label>
+                              </li>
+                            ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
-          </div>
+          </fieldset>
+        )}
+        {viewTypeSt === "board" && (
+          <fieldset className="board-card-fields-fieldset">
+            <legend className="board-card-fields-legend">Kanban cards</legend>
+            <input type="hidden" name="boardCardFields" value={boardCardPicked.join(", ")} />
+            <input type="hidden" name="boardCardLabelFields" value={boardCardLabelHidden} />
+            <p className="form-hint board-card-fields-intro">
+              Tap fields to put them on each card. <strong>Selected</strong> fields are highlighted; the number is line order (top = title link). Use ↑ ↓ to reorder.
+              For selected fields, turn <strong>Label</strong> on to show “Field name:” before the value. Leave none selected to use only the{" "}
+              <strong>first field</strong> from <strong>Manage fields</strong>.
+            </p>
+            {boardCardOptions.length > 0 && boardCardPicked.length === 0 && (
+              <label className="board-card-default-title-label">
+                <input
+                  type="checkbox"
+                  checked={defaultTitleShowLabel}
+                  onChange={(e) => setDefaultTitleShowLabel(e.target.checked)}
+                />
+                <span>
+                  Show field name on the default card title ({boardCardOptions[0]?.name})
+                </span>
+              </label>
+            )}
+            {boardCardOptions.length > 0 ? (
+              <div
+                className="board-card-field-grid"
+                role="group"
+                aria-label="Fields shown on Kanban cards"
+              >
+                {boardCardOptions.map((o) => {
+                  const selected = boardCardPicked.includes(o.slug);
+                  const order = selected ? boardCardPicked.indexOf(o.slug) + 1 : 0;
+                  const pos = selected ? boardCardPicked.indexOf(o.slug) : -1;
+                  const showLabel = boardCardLabelSlugs.includes(o.slug);
+                  return (
+                    <div key={o.slug} className="board-card-field-chip-wrap">
+                      <button
+                        type="button"
+                        className={`board-card-field-chip${selected ? " board-card-field-chip--selected" : ""}`}
+                        onClick={() => toggleBoardCardSlug(o.slug)}
+                        aria-pressed={selected}
+                      >
+                        {selected && (
+                          <span className="board-card-field-chip-order" aria-hidden>
+                            {order}
+                          </span>
+                        )}
+                        <span className="board-card-field-chip-body">
+                          <span className="board-card-field-chip-name">{o.name}</span>
+                          <code className="board-card-field-chip-slug">{o.slug}</code>
+                        </span>
+                      </button>
+                      {selected && (
+                        <div className="board-card-field-chip-side">
+                          <div className="board-card-field-chip-reorder">
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm board-card-field-reorder-btn"
+                              disabled={pos <= 0}
+                              onClick={() => moveBoardCardSlug(o.slug, -1)}
+                              aria-label={`Move ${o.name} up`}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm board-card-field-reorder-btn"
+                              disabled={pos < 0 || pos >= boardCardPicked.length - 1}
+                              onClick={() => moveBoardCardSlug(o.slug, 1)}
+                              aria-label={`Move ${o.name} down`}
+                            >
+                              ↓
+                            </button>
+                          </div>
+                          <label className="board-card-field-label-toggle">
+                            <input
+                              type="checkbox"
+                              checked={showLabel}
+                              onChange={() => toggleBoardCardLabelSlug(o.slug)}
+                            />
+                            <span>Label</span>
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="form-hint board-card-fields-empty">No fields in this module.</p>
+            )}
+          </fieldset>
         )}
         <input
           type="hidden"

@@ -14,6 +14,7 @@ import { getAllowDeveloperSetup, isPlatformAdmin } from "@/lib/developer-setup";
 import { getCustomerLoginSettings } from "@/lib/customer-login-settings";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getTenantTimeZone } from "@/lib/tenant-timezone";
+import { getDashboardFeatures } from "@/lib/dashboard-features";
 import { updateDashboardSettings, connectStripeFormAction, sendTestWebhookFormAction, createApiKeyAction, revokeApiKeyFormAction, updateConsentTypesFormAction, updateAllowDeveloperSetupForCurrentTenantFormAction, inviteEndUserAction, deactivateEndUserFormAction, sendEndUserPasswordResetFormAction } from "../actions";
 import { SettingsSectionCards } from "./SettingsSectionCards";
 
@@ -161,6 +162,7 @@ export default async function DashboardSettingsPage({
   const allowDeveloperSetup = getAllowDeveloperSetup(tenant?.settings ?? null);
   const showDeveloperSections = allowDeveloperSetup && hasDeveloperPermission;
   const platformAdmin = isPlatformAdmin(user?.email ?? null);
+  const dashboardFeatures = getDashboardFeatures(tenant?.settings ?? null);
 
   return (
     <div>
@@ -232,6 +234,7 @@ export default async function DashboardSettingsPage({
         isPlatformAdmin={platformAdmin}
         allowDeveloperSetup={allowDeveloperSetup}
         updateAllowDeveloperSetupFormAction={updateAllowDeveloperSetupForCurrentTenantFormAction}
+        dashboardFeatures={dashboardFeatures}
       />
     </div>
   );

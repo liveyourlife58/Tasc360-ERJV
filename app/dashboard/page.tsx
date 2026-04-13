@@ -4,10 +4,9 @@ import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getDashboardSettings, orderModulesBySettings } from "@/lib/dashboard-settings";
 import { getDashboardFeatures } from "@/lib/dashboard-features";
+import { isPlatformAdmin } from "@/lib/developer-setup";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getTenantLocale, formatDate } from "@/lib/format";
-import { getTenantTimeZone } from "@/lib/tenant-timezone";
-import { fetchDeadlineAttentionRows } from "@/lib/dashboard-overview";
 import { DashboardHomeOverview } from "@/components/dashboard/DashboardHomeOverview";
 
 function buildSubscriptionOverviewCard(
@@ -21,7 +20,7 @@ function buildSubscriptionOverviewCard(
   if (!subscriptionEnabled || !tenant?.subscriptionStatus) return null;
   const st = tenant.subscriptionStatus;
   if (st === "active") return null;
-  const href = "/dashboard/subscription";
+  const href = "/dashboard/team";
   if (st === "trialing") {
     const end = tenant.subscriptionCurrentPeriodEnd;
     const endStr = end ? formatDate(end, locale) : "soon";
@@ -56,7 +55,7 @@ export default async function DashboardHome() {
   const userId = (await headers()).get("x-user-id");
   if (!tenantId || !userId) redirect("/login");
 
-  const [tenant, modulesWithFields, canReadEntities] = await Promise.all([
+  const [tenant, modulesWithFields, canReadEntities, sessionUser] = await Promise.all([
     prisma.tenant.findUnique({
       where: { id: tenantId },
       select: {
@@ -76,6 +75,7 @@ export default async function DashboardHome() {
       },
     }),
     hasPermission(userId, PERMISSIONS.entitiesRead),
+    prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
   ]);
 
   const dashboardSettings = getDashboardSettings(tenant?.settings ?? null);
@@ -109,47 +109,38 @@ export default async function DashboardHome() {
   }
 
   const features = getDashboardFeatures(tenant?.settings ?? null);
+  const platformAdmin = isPlatformAdmin(sessionUser?.email ?? null);
   const locale = getTenantLocale(tenant?.settings ?? null);
-  const tenantTz = getTenantTimeZone(tenant?.settings);
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  const [approvalPendingCount, activityLast7dCount, deadlineAttention] = await Promise.all([
+  const [approvalPendingCount, activityLast7dCount] = await Promise.all([
     canReadEntities && features.approvals
       ? prisma.approval.count({ where: { tenantId, status: "pending" } })
       : Promise.resolve(0),
     canReadEntities && features.activity
       ? prisma.event.count({ where: { tenantId, createdAt: { gte: weekAgo } } })
       : Promise.resolve(0),
-    canReadEntities
-      ? fetchDeadlineAttentionRows(prisma, {
-          tenantId,
-          modules: orderedModules,
-          tenantTimeZone: tenantTz,
-        })
-      : Promise.resolve([]),
   ]);
 
-  const subscriptionCard = buildSubscriptionOverviewCard(features.subscription, tenant, locale);
+  const subscriptionCard = buildSubscriptionOverviewCard(features.teamBilling, tenant, locale);
 
   return (
     <div>
       <div className="page-header">
         <h1>Dashboard</h1>
-        <p className="settings-hint" style={{ marginTop: "0.35rem", marginBottom: 0, maxWidth: "42rem" }}>
-          Summary of what needs attention. Open <strong>Modules &amp; data</strong> in settings for templates, AI, and import/export.
-        </p>
       </div>
       <DashboardHomeOverview
         canReadEntities={canReadEntities}
+        isPlatformAdmin={platformAdmin}
         features={{
           approvals: features.approvals,
           activity: features.activity,
-          subscription: features.subscription,
+          teamBilling: features.teamBilling,
+          settings: features.settings,
         }}
         approvalPendingCount={approvalPendingCount}
         activityLast7dCount={activityLast7dCount}
         subscriptionCard={subscriptionCard}
-        deadlineAttention={deadlineAttention}
         orderedModules={orderedModules.map((m) => ({ id: m.id, name: m.name, slug: m.slug }))}
       />
     </div>

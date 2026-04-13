@@ -93,7 +93,8 @@ async function loadInverseBacklinkCandidates(tenantId: string, targetModuleSlug:
 
 async function enrichInverseBacklinkSectionsWithActivity(
   tenantId: string,
-  sections: InverseBacklinkSection[]
+  sections: InverseBacklinkSection[],
+  formatOptions?: { locale?: string; timeZone?: string }
 ): Promise<void> {
   if (sections.length === 0) return;
   const activityFieldDefs: { slug: string; settings: unknown }[] = [];
@@ -108,7 +109,12 @@ async function enrichInverseBacklinkSectionsWithActivity(
   if (activityFieldDefs.length === 0) return;
 
   const uniqueEntityIds = [...new Set(sections.flatMap((s) => s.entities.map((e) => e.id)))];
-  const summaries = await loadActivitySummariesForEntities(tenantId, uniqueEntityIds, activityFieldDefs);
+  const summaries = await loadActivitySummariesForEntities(
+    tenantId,
+    uniqueEntityIds,
+    activityFieldDefs,
+    formatOptions
+  );
 
   for (const sec of sections) {
     for (const ent of sec.entities) {
@@ -155,7 +161,8 @@ function buildSectionsForTarget(
 export async function getInverseBacklinksByTargetEntityIds(
   tenantId: string,
   targetModuleSlug: string,
-  targetEntityIds: string[]
+  targetEntityIds: string[],
+  formatOptions?: { locale?: string; timeZone?: string }
 ): Promise<Record<string, InverseBacklinkSection[]>> {
   const out: Record<string, InverseBacklinkSection[]> = {};
   if (targetEntityIds.length === 0) return out;
@@ -204,7 +211,7 @@ export async function getInverseBacklinksByTargetEntityIds(
     const byField = grouped.get(targetId)!;
     const sections = buildSectionsForTarget(candidates, byField);
     if (sections.length > 0) {
-      await enrichInverseBacklinkSectionsWithActivity(tenantId, sections);
+      await enrichInverseBacklinkSectionsWithActivity(tenantId, sections, formatOptions);
       out[targetId] = sections;
     }
   }
@@ -219,9 +226,15 @@ export async function getInverseBacklinksByTargetEntityIds(
 export async function getInverseRelationBacklinkSections(
   tenantId: string,
   targetModuleSlug: string,
-  targetEntityId: string
+  targetEntityId: string,
+  formatOptions?: { locale?: string; timeZone?: string }
 ): Promise<InverseBacklinkSection[]> {
-  const map = await getInverseBacklinksByTargetEntityIds(tenantId, targetModuleSlug, [targetEntityId]);
+  const map = await getInverseBacklinksByTargetEntityIds(
+    tenantId,
+    targetModuleSlug,
+    [targetEntityId],
+    formatOptions
+  );
   return map[targetEntityId] ?? [];
 }
 

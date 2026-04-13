@@ -1,87 +1,247 @@
 # How to use the app
 
-This guide explains how to use the dashboard and your public site. You can manage your data, team, billing, and settings from one place.
+This guide explains how to use the **dashboard** (your private workspace) and the **public customer site** your visitors see. It is written for workspace members, administrators, and anyone configuring modules, fields, and integrations.
+
+Use the **table of contents** to jump to a section. Some topics (API keys, webhooks, JSON field rules) are more technical; skim those if you only use the UI.
 
 ---
 
 ## Table of contents
 
-1. [Getting started](#getting-started)
-2. [Dashboard home](#dashboard-home)
-3. [Modules and entities](#modules-and-entities)
-4. [Views: list, board, and calendar](#views-list-board-and-calendar)
-5. [Fields and relationships](#fields-and-relationships)
-6. [Approvals](#approvals)
-7. [Activity (audit log)](#activity-audit-log)
-8. [Finance](#finance)
-9. [Integrations](#integrations)
-10. [Team (users and roles)](#team-users-and-roles)
-11. [Subscription and billing](#subscription-and-billing)
-12. [Settings](#settings)
-13. [Ask about your data (AI)](#ask-about-your-data-ai)
-14. [Export and import](#export-and-import)
-15. [Your public customer site](#your-public-customer-site)
-16. [Permissions](#permissions)
+1. [Concepts and terminology](#concepts-and-terminology)
+2. [Getting started](#getting-started)
+3. [Platform administration and dashboard features](#platform-administration-and-dashboard-features)
+4. [Dashboard home](#dashboard-home)
+5. [Modules and records (entities)](#modules-and-records-entities)
+6. [Deadlines, list priority, and Deadline attention](#deadlines-list-priority-and-deadline-attention)
+7. [Field value highlights (conditional row colors)](#field-value-highlights-conditional-row-colors)
+8. [Views: list, board, and calendar](#views-list-board-and-calendar)
+9. [Fields and field types](#fields-and-field-types)
+10. [Relationships, tags, and backlinks](#relationships-tags-and-backlinks)
+11. [Approvals](#approvals)
+12. [Activity (audit log)](#activity-audit-log)
+13. [Consent](#consent)
+14. [Finance](#finance)
+15. [Integrations](#integrations)
+16. [Team (users and roles)](#team-users-and-roles)
+17. [Subscription and billing](#subscription-and-billing)
+18. [Settings](#settings)
+19. [Ask about your data (AI)](#ask-about-your-data-ai)
+20. [Export and import](#export-and-import)
+21. [Your public customer site](#your-public-customer-site)
+22. [Permissions and roles](#permissions-and-roles)
+23. [Developers: API, webhooks, and customer logins](#developers-api-webhooks-and-customer-logins)
+24. [Need more help?](#need-more-help)
+
+---
+
+## Concepts and terminology
+
+| Term | Meaning |
+|------|--------|
+| **Workspace** / **tenant** | Your organization’s isolated data and settings. One login can belong to a workspace; data does not leak between tenants. |
+| **Module** | A type of record you define (e.g. Customers, Events). Each module has its own fields and records. |
+| **Entity** | A single record inside a module (one row of data). Sometimes called a **record**. |
+| **Field** | A column on a module: name, type, validation, and optional settings (e.g. select options, relation target). |
+| **Slug** | A short, URL-safe identifier for a module or field, used in URLs and APIs. |
+| **View** | A saved way to look at a module’s entities: filters, sort, columns, and list vs board vs calendar. |
+| **Soft delete** | Deleting hides a record from normal lists; it can be restored. Data is not immediately destroyed. |
+| **Dashboard features** | Switches (per tenant) that a **platform administrator** can use to show or hide whole areas of the dashboard, the public site, and some home blocks. |
+| **Developer setup** | When enabled for a workspace, users with **developer** permission can see API keys, webhooks, and the Integrations sidebar link (when those features are on). |
 
 ---
 
 ## Getting started
 
-After you log in, you land in the **dashboard**. The sidebar on the left is your main navigation:
+After you log in, you land in the **dashboard**. The **sidebar** on the left is the main navigation.
 
-- **Workspace**: **Home** plus each of your **modules** (e.g. Customers, Jobs, Invoices).
-- **Settings & billing**: Approvals, Activity, Finance, Integrations, Team, Subscription & billing, Settings.
-- **Footer**: **Preview site** (opens your public site in a new tab) and **Log out**.
+### Workspace section
 
-If you have no modules yet, the home page will prompt you to **start from a template** or **describe what you need** so the app can suggest modules. You can also create a custom module by describing it in plain language.
+- **Dashboard** (Home): summary, optional deadline list, module tiles (depending on [dashboard features](#platform-administration-and-dashboard-features)), and navigation help.
+- **Module links**: one link per active module, in the order your workspace configures (sidebar order). Use these to open list/board/calendar views for that module.
+
+### Settings and billing section
+
+Items appear **only if** the corresponding **dashboard feature** is on for your tenant **and** you have [permissions](#permissions-and-roles). Typical items include:
+
+- **Help** — this guide (loaded from the workspace documentation).
+- **Approvals** — pending and historical approval requests.
+- **Activity** — tenant-wide audit log.
+- **Consent** — consent records for people (marketing, essential, etc.).
+- **Finance** — ledgers, journal entries, exchange rates, fiscal periods (when configured).
+- **Integrations** — external service connections — only when the **Integrations** feature is on, **developer setup** is enabled for the workspace, and you have **developer** permission.
+- **Team** — users and roles.
+- **Subscription & billing** — plan and Stripe customer portal (when used).
+- **Settings** — branding, modules hub, customer site, Stripe, API, webhooks, consent types, and more.
+
+### Footer
+
+- **Preview site** — opens your public customer site in a new tab when the **Customer site** dashboard feature is enabled.
+- **Log out** — ends your session.
+
+### First-time workspace with no modules
+
+**Home** explains how to open **Dashboard settings** → **Modules & data** to start from a **template**, describe a module with **AI**, or **import** data from a JSON export.
+
+### Default home redirect
+
+If an administrator sets **Default home** (in Settings → **Default home**) to a specific **module** or **view**, visiting **Home** may **redirect** you straight to that module or view instead of the dashboard overview.
+
+---
+
+## Platform administration and dashboard features
+
+A **platform administrator** (not the same as a workspace admin) can enable or disable **dashboard features** for your tenant. Stored settings control what appears in the sidebar, which routes are available, and some blocks on the home page.
+
+Typical feature keys include:
+
+| Feature | What it affects (summary) |
+|--------|---------------------------|
+| **Help** | The Help page and sidebar link. |
+| **Approvals** | Approvals area and home summary card. |
+| **Activity** | Activity log and home summary card. |
+| **Consent** | Consent page and related settings. |
+| **Finance** | Finance area. |
+| **Integrations** | Integrations page (with developer setup + permission). |
+| **Team** | Team management. |
+| **Subscription** | Subscription page and home billing notices. |
+| **Settings** | Settings hub and home **Modules** tile section (module shortcuts still appear in the sidebar unless you restrict access elsewhere). |
+| **Customer site** | Public site at `/s/your-slug`, Preview site link, and customer-site settings cards. |
+| **Deadlines** | Home **Deadline attention** list and the data loaded for it. |
+
+If something you expect is missing, your role may lack permission, or a platform administrator may have turned off that **dashboard feature**. Ask your workspace or platform admin.
 
 ---
 
 ## Dashboard home
 
-From **Home** you can:
+What you see on **Home** depends on [dashboard features](#platform-administration-and-dashboard-features), [permissions](#permissions-and-roles), and whether you have any modules.
 
-- See and open all your **modules**.
-- **Ask about your data**: type a question to get answers based on your records (see [Ask about your data (AI)](#ask-about-your-data-ai)).
-- **Export** your data as a JSON file (backup or move to another workspace).
-- **Import** data from a previously exported JSON file.
-- Create a **new module** (template or custom).
+### Summary row (when enabled and you can read entities)
 
-If your administrator has set a **default home**, you may be redirected to a specific module or view instead of the modules list.
+- **Approvals**: count of **pending** approval requests (when the Approvals feature is on).
+- **Activity**: count of **events in the last 7 days** (when Activity is on).
+- **Subscription**: short notice when billing needs attention (e.g. trial ending, past due) — when Subscription is on and Stripe status warrants it.
+
+These are informational shortcuts; use the sidebar for full pages.
+
+### Deadline attention (when enabled)
+
+When **Deadlines** is on and your workspace has [deadline fields](#deadlines-list-priority-and-deadline-attention) configured, Home can show a **Deadline attention** list: recent records that match the **same priority rule** as module list ordering (see [Deadlines](#deadlines-list-priority-and-deadline-attention)). The list is **not exhaustive** — it scans recent updates per module — so treat it as a quick glance, not a complete report.
+
+If the block is missing, the feature may be off, you may lack entity read access, or **no rows** currently match.
+
+### Modules tile section (when Settings is on)
+
+When the **Settings** dashboard feature is on, Home shows **module tiles** and a link to **Modules & data** in Settings. If Settings is off for your tenant, use the **sidebar module links** to navigate; **Modules & data** (templates, AI, import/export) lives under Settings when you can access it.
+
+### Modules & data hub (Settings)
+
+**Templates**, **Ask about your data**, **Export** (JSON), **Import from export JSON**, and **create module** (AI or custom) live under **Settings** → **Modules & data**, not on the Home overview. See [Ask about your data](#ask-about-your-data-ai) and [Export and import](#export-and-import).
 
 ---
 
-## Modules and entities
+## Modules and records (entities)
 
-A **module** is a type of record in your workspace (e.g. Customers, Projects, Invoices). Each module has a list of **fields** (name, date, amount, status, etc.) that you define.
-
-An **entity** is a single record in a module (e.g. one customer, one invoice). You create and edit entities from the module’s page.
+A **module** is a type of record (e.g. Customers, Jobs). Each module has **fields** you define. An **entity** is one record in that module.
 
 ### Opening a module
 
-Click the module name in the sidebar (under **Workspace**). You’ll see the list (or board/calendar view) of records for that module.
+Click the module name in the sidebar or a module tile on Home. You land on the module’s default or selected **view** (list, board, or calendar).
 
 ### Creating a record
 
 1. Open the module.
-2. Click **New [record type]** (e.g. **New customer**).
-3. Fill in the fields and save.
+2. Click **New …** (label depends on module name).
+3. Fill in fields and save.
 
 ### Editing a record
 
-Click a row (or card) in the list/board/calendar, or use the link to open the record. Change any fields and save.
+Open a row, card, or calendar item, or use links from **Approvals**, **Deadline attention**, or **Activity**. On the record page, change fields and save.
 
 ### Deleting a record
 
-On the record’s page, use the delete option. Records are **soft-deleted**: they are hidden from the main list but can be restored. Use **Show deleted** on the module page to see them, then **Restore** if needed.
+Use the delete action on the record page. Deletes are **soft**: the record is hidden from normal lists. Use **Show deleted** on the module view (when available) to list soft-deleted records and **restore** them.
 
-### Cloning a record
+### Hard delete (platform)
 
-From a record’s page you can **Clone** to create a copy with the same field values (handy for templates or duplicates).
+In rare cases a **platform administrator** may have a hard-delete option; this is destructive and not available to normal users.
+
+### Cloning
+
+Use **Clone** on a record to copy field values into a new entity (useful for templates or repeating entries).
 
 ### Pagination
 
-Long lists are paginated. Use **Previous** / **Next** at the bottom to move between pages.
+Long lists are paginated. Use **Previous** / **Next** at the bottom.
+
+### Record page extras (when configured)
+
+- **Approvals**: request approval on the record.
+- **Related data**: relation fields, **inverse relation backlinks** (records in other modules pointing here).
+- **Payments**: if the module uses Stripe (payment/donation), pricing and checkout-related UI may appear.
+- **Recent changes**: on some events, **field-level before/after** summaries appear in the activity section on the record.
+
+---
+
+## Deadlines, list priority, and Deadline attention
+
+### Date fields marked as deadlines
+
+For **date** fields, you can enable **Treat as deadline** (in field settings). That opt-in is used for:
+
+1. **List / export priority** — how entities sort when a module has deadline fields.
+2. **Home “Deadline attention”** — same rule: a record appears if **any** deadline field on the row matches its **priority window** (see below).
+
+### List priority window (`deadlineListDaysAhead`)
+
+Only applies when **Treat as deadline** is checked. Values are interpreted in the **tenant timezone** (“today” is the calendar date in that zone):
+
+| Setting | Meaning |
+|--------|---------|
+| **Blank / omitted** | **Overdue only** — date strictly **before** today. |
+| **0** | **Today or overdue** — date `≤` today. |
+| **N > 0** | Date **on or before** today + **N** calendar days (includes overdue), i.e. a rolling horizon. |
+
+**Multiple deadline fields** on one module: a row is prioritized if **any** deadline field qualifies under **its own** window (field order defines the specs; the row matches if any spec matches).
+
+### Home “Deadline attention” list
+
+The app loads **recently updated** entities per module (not every entity in the database). It keeps rows that match the same **priority** rule as above, then shows a short list (with a cap). Titles are taken from the **first field** in the module or common fallbacks (`name`, `title`).
+
+So: configure deadlines on date fields and set windows appropriately; then **Deadline attention** and list ordering stay consistent.
+
+---
+
+## Field value highlights (conditional row colors)
+
+On **Manage fields**, each field can have **Value highlights (JSON)** — optional rules that color **list cells** (and optionally other columns) when conditions match.
+
+### Behavior
+
+- Rules are an **array** of objects. The **first matching rule wins** (field order, then rule order in the JSON).
+- Each rule has a **`when`** condition and a **`variant`** (preset tone) or custom **`colors`**.
+- Preset tones: `blue`, `green`, `amber`, `red`, `gray` (legacy names `info`, `success`, `warning`, `danger`, `neutral` still work and map to those tones).
+- Optional **`whenFieldSlug`**: evaluate the condition against **another field** in the same row (must match that field’s type for operators).
+- Optional **`highlightFieldSlugs`**: apply the highlight to **other columns** instead of only the field that owns the rule.
+- Optional **`colors`**: `{ "background": "#rrggbb", "accent": "#rrggbb" }` or `transparent` — overrides preset styling when valid.
+
+### Example operators (`when.op`)
+
+**General:** `empty`, `nonEmpty`, `equals`, `oneOf`, `contains` (optional `caseSensitive`), `gt`, `gte`, `lt`, `lte`, `between` (numbers), `betweenDates`, `before`, `after` (ISO `YYYY-MM-DD` dates), `isTrue`, `isFalse`.
+
+**Date / deadline-oriented:** `deadlinePassed`, `deadlineNotPassed`, `deadlineDueToday`, `deadlineDueWithinDays` (with `days` — aligns with [deadline windows](#deadlines-list-priority-and-deadline-attention)).
+
+Minimal example:
+
+```json
+[
+  { "when": { "op": "oneOf", "values": ["Blocked", "Cancelled"] }, "variant": "red" },
+  { "when": { "op": "equals", "value": "Review" }, "variant": "amber" }
+]
+```
+
+Invalid JSON or malformed rules show an error when saving; fix the textarea and save again.
 
 ---
 
@@ -89,265 +249,281 @@ Long lists are paginated. Use **Previous** / **Next** at the bottom to move betw
 
 Each module can have multiple **views**. A view stores:
 
-- **Filters** (e.g. status = Open, date after last month).
-- **Sort** (e.g. by date, by name).
+- **Filters** (e.g. status = Open).
+- **Sort** (e.g. by date).
 - **Visible columns** (list view).
-- **View type**: **List**, **Board** (Kanban), or **Calendar**.
+- **View type**: **List**, **Board**, or **Calendar**.
 
 ### Switching views
 
-Use the view selector near the top of the module page. Pick an existing view or create a new one.
+Use the view selector at the top of the module page. Create new views if you have [permission](#permissions-and-roles).
 
 ### List view
 
 - Table with columns you choose.
-- Filter and sort using the view’s configuration.
-- **Export CSV**: download the current (filtered) list as a spreadsheet.
+- Filter and sort using the view configuration.
+- **Export CSV**: downloads the filtered list as a spreadsheet.
 
 ### Board view
 
-- Cards grouped by a **status** (or similar) field (e.g. To do, In progress, Done).
-- Drag and drop cards between columns to update that field.
-- You must have at least one **select** (dropdown) field to use as the board column.
+- Cards grouped by a **select** (dropdown) field (e.g. status).
+- Drag cards between columns to update that field.
+- You need at least one **select** field to drive the board.
 
 ### Calendar view
 
-- Records shown on a calendar by a **date** field.
-- You need at least one **date** field to use the calendar.
-- Use the arrows to change month.
-
-### Saving a view
-
-After setting filters, sort, and columns (or board/calendar options), save the view and give it a name. You can set one view as the **default** so the module opens to it automatically.
+- Records placed by a **date** field.
+- Navigate months with arrows.
+- Requires at least one **date** field.
 
 ### Default view
 
-Admins can set a **default view** per module. When you open that module, you’ll land on that view instead of the first one.
+Admins can set a **default view** per module. Opening the module selects that view.
 
 ---
 
-## Fields and relationships
+## Fields and field types
 
-### Managing fields
+From a module, open **Manage fields** to add, edit, reorder, or remove fields. **Slugs** are stable identifiers for APIs and URLs; **names** are shown in the UI.
 
-From a module page, click **Manage fields**. You can:
+Removing a field may be blocked while data exists; you may need to clear values or ask a platform admin.
 
-- **Add** a field: name, type (text, number, date, boolean, select, relation, file, etc.), required/optional, and for select/relation the options.
-- **Edit** a field: change label, type, options.
-- **Reorder** fields (they appear in that order on forms and lists).
-- **Remove** a field (only if you’re sure; existing data in that field may be lost).
+### Field types (overview)
 
-Field **slugs** are used internally and in the API; names are what users see.
+| Type | Typical use |
+|------|-------------|
+| **Text** | Free text, names, notes. |
+| **Number** | Amounts, counts; supports comparisons in highlights. |
+| **Date** | Calendar dates (`YYYY-MM-DD`); optional [deadline](#deadlines-list-priority-and-deadline-attention) behavior. |
+| **Boolean** | Yes/no toggles. |
+| **Select** | Options from a comma-separated list; good for status and board columns. |
+| **Tenant user** | Pick a **workspace member** (user in your tenant). |
+| **Relation (single)** | Link to **one** record in another module; optional display field and backlinks. |
+| **Relation (multiple)** | Link to **many** records. |
+| **File** | Upload or reference file storage (see UI for limits). |
+| **JSON** | Structured data for advanced use; validate carefully. |
+| **Activity** | Read-only **activity feed** on the record (preview limit configurable); not a normal user-editable value. |
 
-### Relationship fields
+### Showing in lists
 
-A **relation** field links a record to another record (possibly in another module). For example, an Invoice can have a relation to a Customer. When you add a relation field, you choose the **target module** and optionally the **relation type** (e.g. “customer” or “bill_to”). Relationships can be one-to-one or one-to-many depending on how you use them.
+Fields can be toggled **show in entity list** so they appear as columns in list views (subject to view column settings).
 
-### Tags
+### Value highlights
 
-You can add **tags** to records (e.g. “vip”, “urgent”) and filter or group by tag in views.
+See [Field value highlights](#field-value-highlights-conditional-row-colors).
+
+---
+
+## Relationships, tags, and backlinks
+
+**Relation** fields point to another module’s entity. Configure **target module** and optionally **display field** (what label shows in the picker and lists).
+
+**Inverse relation backlinks**: when enabled on the relation, the **target** record’s page can show incoming links from records that reference it.
+
+**Tags** (if supported on your deployment) can be used for filtering and grouping in views.
 
 ---
 
 ## Approvals
 
-Use approvals when a record must be approved before it’s considered final (e.g. quotes, purchase orders, time off).
+Use approvals when a record must be **approved** before it is final (e.g. quotes, POs).
 
-### Requesting approval
+### Request approval
 
 1. Open the record.
-2. In the **Approvals** section, choose an **approval type** (e.g. Quote, PO) and submit.
-3. If email notifications are on, approvers may receive an email.
+2. In the **Approvals** section, choose an **approval type** and submit.
+3. If [email notifications](#settings) are enabled, approvers may get email.
 
-### Approving or rejecting
+### Approve or reject
 
-1. Go to **Approvals** in the sidebar.
-2. You’ll see pending requests with type, record, requester, and date.
-3. Open the record if needed, then **Approve** or **Reject** (with an optional comment).
+1. Open **Approvals** in the sidebar.
+2. Review pending items; open the record if needed.
+3. **Approve** or **Reject** (optional comment).
 
-Only users with the right permissions see the Approvals page and can approve or reject.
+Access requires **Approvals** and appropriate [permissions](#permissions-and-roles).
 
 ---
 
 ## Activity (audit log)
 
-**Activity** shows a log of what happened in your workspace: who did what and when (e.g. record created/updated/deleted, logins, user invites, API key changes).
+**Activity** lists **tenant-wide events**: creates, updates, deletes, logins, invites, API key changes, and more.
 
-Use the filters to narrow by:
+### Filters
 
-- **User**
-- **Event type**
-- **Module**
-- **Date range**
+Narrow by **user**, **event type**, **module**, and **date range**.
 
-This helps with compliance, support, and debugging. Some events (e.g. sensitive actions) are always recorded. Activity can also be **exported** for external audit or retention.
+### Export CSV
+
+Use **Export CSV** with the current filters for offline review or retention.
+
+### Detail
+
+Events may include **field-level** before/after information when the event payload supports it. Record pages may show a compact **changes** summary for recent entity updates.
+
+---
+
+## Consent
+
+The **Consent** page lists **consent records** (who granted or revoked which consent type, and when). **Consent types** (labels like marketing, essential) are configured in **Settings** → **Consent types**.
+
+- **Filters**: by user, type, and active/revoked.
+- **Grant** (when permitted): record consent on behalf of a user.
+- **Revoke**: sets a revocation timestamp; it does not erase history.
+
+You need **read entities** to open Consent; **manage settings** is required for some actions (e.g. granting on behalf of others), depending on implementation.
 
 ---
 
 ## Finance
 
-The **Finance** area is for accounting and reporting: ledgers, journal entries, exchange rates, and fiscal periods.
-
-### Ledgers and accounts
-
-- **Ledgers** are typically entities in a “Ledger” (or “Account”) module.
-- In **Settings** (or Finance settings), you can set which module is used for **accounts** and which for **ledgers**, and choose a **default ledger**.
+**Finance** covers **journal entries**, **exchange rates**, **fiscal periods**, and configuration (which modules represent **accounts** and **ledgers**, default ledger).
 
 ### Journal entries
 
-- **New journal entry**: choose date, reference, description, and add **lines**. Each line has an account (entity), debit or credit amount, and optional memo.
-- From the Finance page, click a journal entry **date** to open its **detail**: view all lines and totals. If the entry was synced to an external system (e.g. QuickBooks), that is shown there too.
-- Journal entries can be in different **currencies** if you use multi-currency (exchange rates).
+Create entries with lines (debit/credit per account entity). Open a journal entry’s **date** for detail. Multi-currency setups use **exchange rates**.
 
-### Exchange rates
+### Exchange rates and fiscal periods
 
-If you use multiple currencies, add **exchange rates** (from/to currency, rate, effective date) so amounts can be converted for reporting.
-
-### Fiscal periods
-
-Define **fiscal periods** (start/end dates). You can **close** a period so no further changes are allowed (optional; depends on your workflow).
+Add rates with effective dates. Define fiscal periods and optionally **close** periods to block further changes.
 
 ### Permissions
 
-Finance pages may be restricted to users with **settings** or **finance** permissions; ask your admin if you don’t see them.
+Finance management uses **Manage settings & billing** (`settings:manage`) for configuration and many actions. If you cannot see Finance, the **Finance** dashboard feature may be off or your role may lack access.
 
 ---
 
 ## Integrations
 
-**Integrations** is where you connect external services (e.g. accounting software) to your workspace.
+**Integrations** (sidebar) connects external services (e.g. accounting). It appears only when:
 
-- Open **Integrations** from the sidebar to see connected services and their status.
-- When connect flows are available (e.g. QuickBooks Online), you will be able to link your account from this page; the app will then be able to sync data (e.g. journal entries, customers) according to the integration.
-- If your administrator has not enabled integration encryption for the platform, the page will show a short note; connect buttons appear once that is configured.
+- The **Integrations** dashboard feature is on,
+- **Developer setup** is enabled for the workspace, and
+- You have **developer** permission.
+
+**Settings** also includes **API access** and **Webhooks** under the Integrations group when your feature flags and permissions allow. See [Developers](#developers-api-webhooks-and-customer-logins).
 
 ---
 
 ## Team (users and roles)
 
-**Team** is where you manage **users** and **roles** for your workspace.
-
 ### Users
 
-- See all users: email, name, role, active status.
-- **Add user**: invite by email; they receive a link to set their password and join.
-- **Edit user**: change name, role, or active status.
-- Deactivating a user removes access without deleting history.
+Invite by email, assign roles, activate or deactivate users. Deactivation removes access without deleting history.
 
 ### Roles
 
-- **Roles** define what a user can do (e.g. “Editor”, “Viewer”, “Admin”).
-- Each role has a set of **permissions** (e.g. read entities, manage entities, manage users, manage settings).
-- Create or edit roles from the **Roles** section on the Team page; then assign that role to users.
-
-Only users with **manage users** permission can invite or edit users and manage roles.
+Roles bundle [permissions](#permissions-and-roles). Edit roles in **Team** if you have **Manage users & roles**.
 
 ---
 
 ## Subscription and billing
 
-**Subscription & billing** shows:
-
-- Your current **plan** and **subscription status** (e.g. active, trialing, past_due).
-- **Billing portal**: update payment method, view invoices, or change plan (if your administrator enabled it).
-
-If your workspace is behind on payment, access may be limited until the subscription is active again. The exact behavior (e.g. grace period) is set by the platform.
+Shows **plan**, **subscription status**, and a **billing portal** link (Stripe) when configured. If payment is past due, access may be limited until resolved.
 
 ---
 
 ## Settings
 
-**Settings** is split into sections. What you see depends on your **permissions** (e.g. only admins may see billing or API keys).
+**Settings** opens a **hub of cards** grouped by:
 
-### Dashboard (backend) settings
+1. **Customer site & public** — homepage, contact, SEO, public modules, waitlist, footer, cookie banner, **Stripe Connect**, **end-user accounts**.
+2. **Workspace** — branding, default home, **Modules & data**, locale/timezone, email notifications, **feature flags** (customer-facing toggles).
+3. **Integrations** — **API keys**, **webhooks** (developer setup + permissions).
+4. **Consent & compliance** — **consent type** labels.
 
-- **Branding**: dashboard name and logo.
-- **Default home**: open to a specific module or view when users go to Home.
-- **Feature flags**: turn customer-facing features on or off (e.g. waitlist, donations).
-- **Locale & format**: date and number format for your workspace.
-- **Email notifications**: opt in to emails for approval requests, payments, webhook failures, etc.
+Which cards appear depends on:
 
-### Customer site (public site) settings
+- Your **permissions**,
+- **Dashboard features** (e.g. customer-site cards hide if **Customer site** is off),
+- **Developer setup** for API/webhooks.
 
-- **Homepage**: hero image, tagline, main content, sidebar module and fields.
-- **Contact**: contact details and optional extra content.
-- **Public modules**: which modules (e.g. Events, Products) are visible on the public site and in the nav.
-- **SEO**: meta title, description, Open Graph image, canonical URL, custom domain.
-- **Waitlist**: if you use a waitlist, configure the module and fields for it.
+### Developer setup (platform)
 
-### Payments (your customers)
+A platform admin can enable **developer setup** for your workspace so **API** and **Webhook** settings appear for users with **developer** permission.
 
-- **Stripe Connect**: connect your own Stripe account so you can charge **your** customers (e.g. for orders, events, donations). Follow the link to complete Stripe onboarding. After that, payments can be recorded against orders/invoices and optionally shown in the dashboard (refunds, etc.).
+### Email notifications
 
-### API access
+Opt in to emails for approvals, payments, webhook failures, etc. (Exact options depend on your tenant configuration.)
 
-- **API keys**: create or revoke keys for the **Tenant API**. Use these to build custom apps or integrations that read/write your data. Keep keys secret; revoke any that are leaked.
+### Stripe Connect
 
-### Webhooks
+Connect **your** Stripe account to charge customers on the public site; complete onboarding in the Stripe flow.
 
-- **Outbound webhooks**: add a URL and optional secret. The app will send HTTP POST requests when certain events happen (e.g. entity created/updated/deleted). Use this to sync with other systems or trigger automations.
+### End-user accounts
+
+Customer logins for **custom frontends** using the Tenant API (JWT). Configure in Settings; backend needs `JWT_SECRET` for tokens.
 
 ---
 
 ## Ask about your data (AI)
 
-From **Home**, use **Ask about your data** to type a question in plain language. The app will:
+Under **Settings** → **Modules & data**, **Ask about your data** lets you type a question in plain language. The app searches your records (full-text and, if configured, semantic search) and uses matching records as **context** for an answer.
 
-1. Search your records (using full-text and, if configured, semantic search).
-2. Use the relevant records as context to answer your question.
+When records were used, they appear as **Sources** with links.
 
-If AI is configured, you get richer answers; otherwise answers are based on full-text search only. When records were used to answer, they appear as **Sources** with links so you can open the record.
-
-You need **read** permission on entities to use this.
+You need **read** permission on entities.
 
 ---
 
 ## Export and import
 
-### Export
+### Export (JSON)
 
-- From **Home**, use **Export** to download a **JSON file** of your workspace data: modules, entities, relationships, and **finance data** (journal entries with lines, exchange rates, fiscal periods). Use this for backups or to move data to another workspace.
+From **Settings** → **Modules & data**, **Export** downloads a **JSON** snapshot: modules, entities, relationships, and **finance** data where applicable. Use for **backup** or **migrating** to another workspace.
 
 ### Import
 
-- From **Home**, open **Import from export JSON** and upload a previously exported JSON file. The app will create or update data according to the file. Check the import summary for any errors.
+Upload a previously exported JSON file. Review the **import summary** for errors.
 
-Export and import are usually restricted to users with the right permissions (e.g. settings or admin).
+### Permissions
+
+Export/import often requires **manage settings** or equivalent; your admin can confirm.
 
 ---
 
 ## Your public customer site
 
-Your workspace has a **public site** where your customers can:
+Customers can browse **public modules**, **contact** you, use **waitlists**, **checkout** (with Stripe Connect), and more — depending on configuration.
 
-- See the homepage and any content you configured.
-- Browse public modules (e.g. events, products).
-- Submit forms, register, or place orders (depending on your setup and Stripe Connect).
-- View “My orders” or similar pages if you enabled them.
+- **URL**: typically `https://<app-host>/s/<workspace-slug>`.
+- **Preview site**: footer link in the dashboard when **Customer site** is enabled.
+- **Configuration**: **Settings** → customer site sections (homepage, contact, public modules, SEO, cookie banner, etc.).
 
-- Use **Preview site** in the dashboard footer to open this site in a new tab.
-- Configure it under **Settings** → customer site sections (homepage, contact, public modules, SEO, etc.).
-- The URL is typically something like: `https://your-app.com/s/your-workspace-slug`.
+If the **Customer site** dashboard feature is off, the public site and preview link are unavailable.
 
 ---
 
-## Permissions
+## Permissions and roles
 
-What you can see and do depends on your **role** and its **permissions**. For example:
+Permissions are strings attached to **roles**. Users receive one role per workspace (unless your platform uses a special default). A role can include `*` for **full access** (legacy / admin).
 
-- **Read entities**: view module lists and record details; Activity log and Approvals page; export (backup).
-- **Manage entities**: create, edit, delete, restore records; request approvals; approve or reject; record or revoke consent.
-- **Manage views**: create, edit, delete views; set filters, sort, and default view.
-- **Manage modules/fields**: create or edit modules and fields (often admin only).
-- **Manage users**: invite users, edit roles, assign permissions (Team page).
-- **Manage settings**: change workspace settings, API keys, webhooks, billing; Finance and Integrations pages.
+Standard permission labels used in the UI:
 
-If you don’t see a menu item or get an error when performing an action, your role may not have the required permission. Ask an administrator to adjust your role or create a new one. Administrators can refer to the full permission list and default roles in the platform documentation.
+| Permission | Typical meaning |
+|------------|-----------------|
+| **Read entities** | View modules and records; Activity; Approvals; export; many read-only flows. |
+| **Create & edit entities** | Create, update, delete (soft), restore; request approvals; consent actions. |
+| **Manage modules & fields** | Create/edit modules and fields. |
+| **Manage views** | Create/edit views and defaults. |
+| **Manage settings & billing** | Workspace settings, Finance configuration, billing-related UI. |
+| **Manage API keys, webhooks & integrations** | Developer integrations (with dashboard features + developer setup). |
+| **Manage users & roles** | Team page: invites, roles. |
+
+**Dashboard features** (platform-level) can still hide a route even if your role would allow it. **Feature** + **role** both apply.
+
+---
+
+## Developers: API, webhooks, and customer logins
+
+- **Tenant API**: REST API under `/api/v1/tenants/...` with `X-API-Key`. See **`docs/TENANT_API.md`** and **`docs/openapi-tenant-api.yaml`** for endpoints, auth, rate limits, idempotency, soft delete, and `highlightRules` in field settings.
+- **Webhooks**: outbound POSTs to your URL on entity events; configure a secret for verification.
+- **Customer logins**: `POST .../auth/login` and `register` with API key; JWT in `Authorization: Bearer` for `auth/me`.
 
 ---
 
 ## Need more help?
 
-- Use **Activity** to see what changed and who did it.
-- Use **Ask about your data** for quick answers from your records.
-- For API integration details, your developer can refer to the **Tenant API** documentation (endpoints, authentication, and limits).
+- **Activity** — investigate who changed what.
+- **Ask about your data** — **Settings** → **Modules & data**.
+- **Tenant API** — developers: `docs/TENANT_API.md`.
+- Workspace or **platform** administrators — for dashboard features, billing, or developer setup.

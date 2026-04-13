@@ -180,7 +180,7 @@ export default async function PlatformTenantDetailPage({
           <Link href="/dashboard/platform" className="btn btn-secondary">
             Back to Platform admin
           </Link>
-          {baseUrl && tenant.slug && (
+          {baseUrl && tenant.slug && dashboardFeatures.customerSite && (
             <a
               href={`${baseUrl}/s/${tenant.slug}`}
               target="_blank"

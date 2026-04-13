@@ -12,15 +12,32 @@ import { SuccessBanner } from "@/components/dashboard/SuccessBanner";
 import { updateView, deleteViewFormAction, updateEntitySingleField, setModuleDefaultView } from "@/app/dashboard/actions";
 import { APP_CONFIG } from "@/lib/app-config";
 import { isFeatureEnabled } from "@/lib/feature-flags";
-import { applyViewToEntities, filterEntitiesByKeyword, getColumnOrder } from "@/lib/view-utils";
-import { getModuleDeadlineFieldSortSpecs, sortEntitiesWithOverdueDeadlineFirst } from "@/lib/deadline-field";
+import {
+  applyViewToEntities,
+  filterEntitiesByConditions,
+  filterEntitiesByKeyword,
+  getColumnOrder,
+} from "@/lib/view-utils";
+import { getModuleDeadlineFieldSortSpecs } from "@/lib/deadline-field";
+import {
+  firstSearchParamValue,
+  parseListColumnSortParams,
+  sortEntitiesForModuleList,
+} from "@/lib/entity-list-sort";
 import { getTenantTimeZone } from "@/lib/tenant-timezone";
 import { getTenantLocale } from "@/lib/format";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { isPlatformAdmin } from "@/lib/developer-setup";
 import { buildRelationLabelMaps, getRelationOptions } from "@/lib/relation-options";
 import { ModuleListSearchBar } from "@/components/dashboard/ModuleListSearchBar";
-import { getModuleEntityListCreatedAtOrder } from "@/lib/module-settings";
+import { ModuleListDataFilters } from "@/components/dashboard/ModuleListDataFilters";
+import {
+  buildListDataFilterFieldMetas,
+  LIST_DATA_FILTERS_QUERY_KEY,
+  parseListDataFiltersParam,
+  stringifyListDataFilters,
+} from "@/lib/list-data-filters";
+import { getModuleEntityListCreatedAtOrder, getModulePaymentType } from "@/lib/module-settings";
 import { getInverseBacklinksByTargetEntityIds } from "@/lib/inverse-relation-backlinks";
 import { fieldSlugsShownInEntityList } from "@/lib/field-entity-list";
 import { formatTenantUserOptionLabel } from "@/lib/tenant-user-field";
@@ -31,10 +48,18 @@ export default async function ModuleEntityListPage({
   searchParams,
 }: {
   params: Promise<{ moduleSlug: string }>;
-  searchParams: Promise<{ view?: string; deleted?: string; success?: string; page?: string; q?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { moduleSlug } = await params;
-  const { view: viewId, deleted: showDeleted, success: successKey, page: pageParam, q: qParam } = await searchParams;
+  const sp = await searchParams;
+  const viewId = firstSearchParamValue(sp.view);
+  const showDeleted = firstSearchParamValue(sp.deleted);
+  const successKey = firstSearchParamValue(sp.success);
+  const pageParam = firstSearchParamValue(sp.page);
+  const qParam = firstSearchParamValue(sp.q);
+  const sortFieldParam = firstSearchParamValue(sp.sortField);
+  const sortDirParam = firstSearchParamValue(sp.sortDir);
+  const dfParam = firstSearchParamValue(sp[LIST_DATA_FILTERS_QUERY_KEY]);
   const searchQuery = typeof qParam === "string" ? qParam.trim() : "";
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
   const PAGE_SIZE = APP_CONFIG.entityPageSize;
@@ -87,6 +112,11 @@ export default async function ModuleEntityListPage({
     const sp = new URLSearchParams();
     sp.set("view", defaultViewId);
     if (searchQuery) sp.set("q", searchQuery);
+    if (sortFieldParam?.trim() && (sortDirParam === "asc" || sortDirParam === "desc")) {
+      sp.set("sortField", sortFieldParam.trim());
+      sp.set("sortDir", sortDirParam);
+    }
+    if (dfParam?.trim()) sp.set(LIST_DATA_FILTERS_QUERY_KEY, dfParam.trim());
     redirect(`/dashboard/m/${moduleSlug}?${sp.toString()}`);
   }
 
@@ -109,16 +139,39 @@ export default async function ModuleEntityListPage({
         }
       : null;
 
+  const viewType =
+    viewRow?.viewType === "board" || viewRow?.viewType === "calendar" ? viewRow.viewType : "list";
+
+  const listColumnFieldSlugs = fieldSlugsShownInEntityList(module_.fields);
+  const columnSlugs = getColumnOrder(viewConfig, listColumnFieldSlugs, APP_CONFIG.entityListMaxColumns);
+  const listShowAmountColumn = getModulePaymentType(module_) != null;
+  const listColumnSortParsed = parseListColumnSortParams(sortFieldParam, sortDirParam, {
+    columnSlugs,
+    fields: module_.fields,
+    showAmountColumn: listShowAmountColumn,
+  });
+  const listColumnSort = viewType === "list" ? listColumnSortParsed : null;
+
   const afterView = applyViewToEntities(
-    entities as { id: string; data: unknown; createdAt?: Date }[],
+    entities as { id: string; data: unknown; createdAt?: Date; metadata?: unknown }[],
     viewConfig
   );
+  const listDataFilterConditions = parseListDataFiltersParam(dfParam, module_.fields);
+  const afterDataFilters =
+    listDataFilterConditions.length > 0
+      ? filterEntitiesByConditions(afterView, listDataFilterConditions)
+      : afterView;
   const deadlineSortSpecs = getModuleDeadlineFieldSortSpecs(module_.fields);
   const tenantTz = getTenantTimeZone(tenant?.settings);
-  const filteredEntities = sortEntitiesWithOverdueDeadlineFirst(
-    filterEntitiesByKeyword(afterView, searchQuery),
+  const tenantLocale = getTenantLocale(tenant?.settings ?? null);
+  const activityFormatOpts = { locale: tenantLocale, timeZone: tenantTz };
+  const filteredEntities = sortEntitiesForModuleList(
+    filterEntitiesByKeyword(afterDataFilters, searchQuery),
     deadlineSortSpecs,
-    tenantTz
+    tenantTz,
+    listColumnSort,
+    module_,
+    module_.fields
   );
   const totalCount = filteredEntities.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
@@ -126,8 +179,15 @@ export default async function ModuleEntityListPage({
   const start = (currentPage - 1) * PAGE_SIZE;
   const paginatedEntities = filteredEntities.slice(start, start + PAGE_SIZE);
 
-  const viewType =
-    viewRow?.viewType === "board" || viewRow?.viewType === "calendar" ? viewRow.viewType : "list";
+  const viewSettings = (viewRow?.settings as {
+    boardColumnField?: string;
+    dateField?: string;
+    boardLaneSource?: string;
+    boardLaneValues?: unknown;
+    boardCardFieldSlugs?: unknown;
+    boardCardShowLabels?: unknown;
+    boardCardLabelFieldSlugs?: unknown;
+  }) ?? {};
 
   const needsTenantUsers = module_.fields.some((f) => f.fieldType === "tenant-user");
   const [relationLabels, relationOptionsMap, inverseBacklinksByEntityId, tenantUsers] = await Promise.all([
@@ -137,7 +197,8 @@ export default async function ModuleEntityListPage({
       ? getInverseBacklinksByTargetEntityIds(
           tenantId,
           moduleSlug,
-          paginatedEntities.map((e) => e.id)
+          paginatedEntities.map((e) => e.id),
+          activityFormatOpts
         )
       : Promise.resolve({} as Awaited<ReturnType<typeof getInverseBacklinksByTargetEntityIds>>),
     needsTenantUsers
@@ -155,13 +216,46 @@ export default async function ModuleEntityListPage({
     id: u.id,
     label: formatTenantUserOptionLabel(u),
   }));
+  const listDataFiltersParseFields = module_.fields.map((f) => ({
+    slug: f.slug,
+    fieldType: f.fieldType,
+  }));
+  const listDataFilterFieldMetas = buildListDataFilterFieldMetas(
+    module_.fields,
+    relationOptionsMap,
+    tenantUserOptionsForMeta
+  );
 
   const fieldSlugs = module_.fields.map((f) => f.slug);
-  const listColumnFieldSlugs = fieldSlugsShownInEntityList(module_.fields);
-  const columnSlugs = getColumnOrder(viewConfig, listColumnFieldSlugs, APP_CONFIG.entityListMaxColumns);
+  const boardCardFieldSlugsRaw = Array.isArray(viewSettings.boardCardFieldSlugs)
+    ? (viewSettings.boardCardFieldSlugs as unknown[]).filter((x): x is string => typeof x === "string")
+    : [];
+  const boardCardFieldSlugs = boardCardFieldSlugsRaw.filter((s) => fieldSlugs.includes(s));
+  const rawBoardCardLabelSlugs = viewSettings.boardCardLabelFieldSlugs;
+  const boardCardLabelFieldSlugsFromSettings = Array.isArray(rawBoardCardLabelSlugs)
+    ? (rawBoardCardLabelSlugs as unknown[]).filter((x): x is string => typeof x === "string").filter((s) => fieldSlugs.includes(s))
+    : null;
+  let boardCardLabelFieldSlugsEffective: string[] = [];
+  if (boardCardLabelFieldSlugsFromSettings !== null) {
+    boardCardLabelFieldSlugsEffective = boardCardLabelFieldSlugsFromSettings.filter((s) =>
+      boardCardFieldSlugs.length === 0 ? true : boardCardFieldSlugs.includes(s)
+    );
+  } else if (viewSettings.boardCardShowLabels === true) {
+    if (boardCardFieldSlugs.length > 0) boardCardLabelFieldSlugsEffective = [...boardCardFieldSlugs];
+    else {
+      const firstSlug = module_.fields[0]?.slug;
+      boardCardLabelFieldSlugsEffective = firstSlug ? [firstSlug] : [];
+    }
+  }
+
   const activityFieldsInListColumns = module_.fields.filter(
     (f) => f.fieldType === "activity" && columnSlugs.includes(f.slug)
   );
+  const activityFieldsOnBoardCards =
+    viewType === "board" && boardCardFieldSlugs.length > 0
+      ? module_.fields.filter((f) => f.fieldType === "activity" && boardCardFieldSlugs.includes(f.slug))
+      : [];
+
   let activityCellSummaries: Record<string, Record<string, string>> = {};
   if (
     !isDeletedView &&
@@ -172,7 +266,22 @@ export default async function ModuleEntityListPage({
     const activityMap = await loadActivitySummariesForEntities(
       tenantId,
       paginatedEntities.map((e) => e.id),
-      activityFieldsInListColumns.map((f) => ({ slug: f.slug, settings: f.settings }))
+      activityFieldsInListColumns.map((f) => ({ slug: f.slug, settings: f.settings })),
+      activityFormatOpts
+    );
+    activityCellSummaries = Object.fromEntries(activityMap);
+  }
+  if (
+    !isDeletedView &&
+    viewType === "board" &&
+    activityFieldsOnBoardCards.length > 0 &&
+    paginatedEntities.length > 0
+  ) {
+    const activityMap = await loadActivitySummariesForEntities(
+      tenantId,
+      paginatedEntities.map((e) => e.id),
+      activityFieldsOnBoardCards.map((f) => ({ slug: f.slug, settings: f.settings })),
+      activityFormatOpts
     );
     activityCellSummaries = Object.fromEntries(activityMap);
   }
@@ -201,12 +310,6 @@ export default async function ModuleEntityListPage({
       return { slug: f.slug, name: f.name, options: opts };
     });
   const dateFieldSlugs = module_.fields.filter((f) => f.fieldType === "date").map((f) => f.slug);
-  const viewSettings = (viewRow?.settings as {
-    boardColumnField?: string;
-    dateField?: string;
-    boardLaneSource?: string;
-    boardLaneValues?: unknown;
-  }) ?? {};
   let boardColumnField =
     viewType === "board"
       ? (viewSettings.boardColumnField ??
@@ -268,6 +371,13 @@ export default async function ModuleEntityListPage({
     if (viewId) params.set("view", viewId);
     if (showDeleted === "1") params.set("deleted", "1");
     if (searchQuery) params.set("q", searchQuery);
+    if (listColumnSort) {
+      params.set("sortField", listColumnSort.field);
+      params.set("sortDir", listColumnSort.dir);
+    }
+    if (listDataFilterConditions.length > 0) {
+      params.set(LIST_DATA_FILTERS_QUERY_KEY, stringifyListDataFilters(listDataFilterConditions));
+    }
     if (nextPage > 1) params.set("page", String(nextPage));
     const q = params.toString();
     return q ? `/dashboard/m/${moduleSlug}?${q}` : `/dashboard/m/${moduleSlug}`;
@@ -276,6 +386,13 @@ export default async function ModuleEntityListPage({
   if (viewId) exportParams.set("view", viewId);
   if (showDeleted === "1") exportParams.set("deleted", "1");
   if (searchQuery) exportParams.set("q", searchQuery);
+  if (listColumnSort) {
+    exportParams.set("sortField", listColumnSort.field);
+    exportParams.set("sortDir", listColumnSort.dir);
+  }
+  if (listDataFilterConditions.length > 0) {
+    exportParams.set(LIST_DATA_FILTERS_QUERY_KEY, stringifyListDataFilters(listDataFilterConditions));
+  }
   const exportCsvUrl =
     `/dashboard/m/${moduleSlug}/export` + (exportParams.toString() ? `?${exportParams.toString()}` : "");
 
@@ -293,6 +410,7 @@ export default async function ModuleEntityListPage({
     tenantTimeZone: tenantTz,
     ...(needsTenantUsers ? { tenantUserLabels } : {}),
     ...(activityFieldsInListColumns.length > 0 ? { activityCellSummaries } : {}),
+    sortableHeaders: !isDeletedView && viewType === "list",
   };
 
   return (
@@ -331,6 +449,7 @@ export default async function ModuleEntityListPage({
         )}
         <ModuleViewSelectorRow
         moduleSlug={moduleSlug}
+        moduleFieldsMeta={module_.fields.map((f) => ({ slug: f.slug, name: f.name }))}
         views={views.map((v) => ({
           id: v.id,
           name: v.name,
@@ -341,6 +460,9 @@ export default async function ModuleEntityListPage({
             dateField?: string;
             boardLaneSource?: string;
             boardLaneValues?: unknown;
+            boardCardFieldSlugs?: unknown;
+            boardCardShowLabels?: unknown;
+            boardCardLabelFieldSlugs?: unknown;
           } | null,
           filter: (Array.isArray(v.filter) ? v.filter : []) as unknown[],
           sort: (Array.isArray(v.sort) ? v.sort : []) as unknown[],
@@ -366,12 +488,20 @@ export default async function ModuleEntityListPage({
           fieldSlugs: listColumnFieldSlugs,
         }}
       />
-        <ModuleListSearchBar
-          moduleSlug={moduleSlug}
-          initialQuery={searchQuery}
-          viewId={viewId ?? null}
-          showDeleted={isDeletedView}
-        />
+        <div className="module-list-toolbar">
+          <ModuleListSearchBar
+            moduleSlug={moduleSlug}
+            initialQuery={searchQuery}
+            viewId={viewId ?? null}
+            showDeleted={isDeletedView}
+          />
+          {!isDeletedView && (
+            <ModuleListDataFilters
+              fieldsForParse={listDataFiltersParseFields}
+              filterableFieldsMeta={listDataFilterFieldMetas}
+            />
+          )}
+        </div>
       </div>
       {viewType === "board" && boardColumnField && !isDeletedView ? (
         <EntityBoard
@@ -384,6 +514,13 @@ export default async function ModuleEntityListPage({
           boardOrderedDefinedValues={boardOrderedDefinedValues}
           boardColumnLabels={boardColumnLabels}
           updateColumnAction={updateEntitySingleField}
+          boardCardFieldSlugs={boardCardFieldSlugs}
+          relationLabels={relationLabels}
+          tenantUserLabels={needsTenantUsers ? tenantUserLabels : undefined}
+          tenantLocale={getTenantLocale(tenant?.settings ?? null)}
+          tenantTimeZone={tenantTz}
+          {...(activityFieldsOnBoardCards.length > 0 ? { activityCellSummaries } : {})}
+          boardCardLabelFieldSlugs={boardCardLabelFieldSlugsEffective}
         />
       ) : viewType === "calendar" && dateField && !isDeletedView ? (
         <EntityCalendar
@@ -435,7 +572,10 @@ export default async function ModuleEntityListPage({
         <nav className="pagination-bar" aria-label="Pagination">
           <p className="pagination-info">
             Showing {start + 1}–{Math.min(start + PAGE_SIZE, totalCount)} of {totalCount}
-            {searchQuery ? " matching search" : ""}
+            {searchQuery || listDataFilterConditions.length > 0 ? " matching" : ""}
+            {searchQuery ? " search" : ""}
+            {searchQuery && listDataFilterConditions.length > 0 ? " and" : ""}
+            {listDataFilterConditions.length > 0 ? " field filters" : ""}
           </p>
           <div className="pagination-links">
             {currentPage > 1 ? (

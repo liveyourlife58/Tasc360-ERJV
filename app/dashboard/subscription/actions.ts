@@ -31,8 +31,8 @@ export async function createSubscriptionCheckout(): Promise<{ error?: string; re
   try {
     result = await createPlatformCheckoutSession(
       tenantId,
-      `${base}/dashboard/subscription?success=1`,
-      `${base}/dashboard/subscription?cancel=1`,
+      `${base}/dashboard/team?success=1`,
+      `${base}/dashboard/team?cancel=1`,
       user?.email ?? "",
       tenant?.name ?? user?.name ?? ""
     );
@@ -54,7 +54,7 @@ export async function openBillingPortal(): Promise<{ error?: string; redirectUrl
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
   let result: Awaited<ReturnType<typeof createPlatformPortalSession>>;
   try {
-    result = await createPlatformPortalSession(tenantId, `${base}/dashboard/subscription`);
+    result = await createPlatformPortalSession(tenantId, `${base}/dashboard/team`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Billing portal failed.";
     return { error: msg.includes("STRIPE_SECRET_KEY") ? "Stripe is not configured (STRIPE_SECRET_KEY)." : msg };

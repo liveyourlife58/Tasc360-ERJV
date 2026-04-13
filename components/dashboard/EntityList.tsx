@@ -1,6 +1,6 @@
-import { RelationMultiCell } from "./RelationMultiCell";
 import { TicketSoldCell } from "./TicketSoldCell";
 import { EntityListRowWithBacklinks } from "./EntityListRowWithBacklinks";
+import { EntityListHeaderRow } from "./EntityListHeaderRow";
 import type { InverseBacklinkSection } from "@/lib/inverse-relation-backlinks";
 import {
   getModulePaymentType,
@@ -8,7 +8,7 @@ import {
   getEntityPriceCents,
   getEntitySuggestedDonationCents,
 } from "@/lib/module-settings";
-import { formatDateIfApplicable } from "@/lib/format";
+import { formatEntityFieldValue } from "@/lib/entity-field-display";
 import { APP_CONFIG } from "@/lib/app-config";
 import { fieldHighlightClassNameForColumn } from "@/lib/field-highlight";
 import { EntityListClickableRow } from "./EntityListClickableRow";
@@ -41,6 +41,8 @@ export function EntityList({
   activityCellSummaries,
   tenantLocale,
   tenantTimeZone,
+  /** When true, column headers include Asc/Desc sort controls (module list view). */
+  sortableHeaders = false,
 }: {
   moduleSlug: string;
   /** Module with settings (for payment/donation column). */
@@ -62,6 +64,7 @@ export function EntityList({
   tenantLocale?: string;
   /** Tenant `settings.timeZone` (IANA) for date display and deadline highlights. */
   tenantTimeZone?: string;
+  sortableHeaders?: boolean;
 }) {
   const maxCols = APP_CONFIG.entityListMaxColumns;
   const columns = columnSlugs?.length
@@ -79,14 +82,22 @@ export function EntityList({
         Tip: the first and last columns stay pinned; scroll sideways to see the rest. Click a row to open the record.
       </p>
     )}
-    <table className="entity-table">
+    <table className={`entity-table${sortableHeaders ? " entity-table--list-sort" : ""}`}>
       <thead>
-        <tr>
-          {columns.map((f) => (
-            <th key={f.id}>{f.name}</th>
-          ))}
-          {showAmountColumn && <th>Price / Donation</th>}
-        </tr>
+        {sortableHeaders ? (
+          <EntityListHeaderRow
+            columns={columns.map((f) => ({ id: f.id, slug: f.slug, name: f.name }))}
+            showAmountColumn={showAmountColumn}
+            amountColumnLabel="Price / Donation"
+          />
+        ) : (
+          <tr>
+            {columns.map((f) => (
+              <th key={f.id}>{f.name}</th>
+            ))}
+            {showAmountColumn && <th>Price / Donation</th>}
+          </tr>
+        )}
       </thead>
       <tbody>
         {entities.length === 0 ? (
@@ -124,7 +135,7 @@ export function EntityList({
                     fields,
                     tenantTimeZone,
                   });
-                  const inner = formatCellValue(
+                  const inner = formatEntityFieldValue(
                     raw,
                     f,
                     entity,
@@ -198,73 +209,4 @@ function formatAmount(cents: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(cents / 100);
-}
-
-function formatCellValue(
-  value: unknown,
-  field: Field,
-  entity: Entity,
-  relationLabels?: Record<string, Record<string, string>>,
-  tenantUserLabels?: Record<string, string>,
-  tenantLocale?: string,
-  tenantTimeZone?: string,
-  activityCellSummaries?: Record<string, Record<string, string>>
-): React.ReactNode {
-  if (field.fieldType === "activity") {
-    const full = activityCellSummaries?.[entity.id]?.[field.slug];
-    if (!full) return <span style={{ color: "#94a3b8" }}>—</span>;
-    if (full === "No activity yet.") {
-      return <span style={{ color: "#64748b", fontSize: "0.8125rem" }}>No activity yet.</span>;
-    }
-    const firstLine = full.split("\n")[0] ?? full;
-    const hasMore = full.includes("\n");
-    return (
-      <span style={{ fontSize: "0.8125rem", color: "#475569" }} title={full}>
-        {firstLine}
-        {hasMore ? " …" : ""}
-      </span>
-    );
-  }
-  if (value == null) return "—";
-  if (field.fieldType === "tenant-user" && typeof value === "string" && value.trim() !== "") {
-    const label = tenantUserLabels?.[value];
-    if (label) return label;
-    return value;
-  }
-  if (field.fieldType === "relation" && typeof value === "string" && value.trim() !== "") {
-    const map = relationLabels?.[field.slug];
-    if (map?.[value]) return map[value];
-    return value;
-  }
-  if (Array.isArray(value)) {
-    if (value.length === 0) return "—";
-    if (field.fieldType === "relation-multi") {
-      const targetSlug =
-        (field.settings?.targetModuleSlug ?? field.settings?.targetModule) as
-          | string
-          | undefined;
-      if (targetSlug) {
-        return (
-          <RelationMultiCell
-            entityIds={value as string[]}
-            targetModuleSlug={targetSlug}
-            fieldName={field.name}
-            labelById={relationLabels?.[field.slug]}
-          />
-        );
-      }
-      return `${value.length} selected`;
-    }
-    return value.join(", ");
-  }
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  const dateStr = formatDateIfApplicable(value, field.fieldType, tenantLocale, tenantTimeZone);
-  if (dateStr !== null) return dateStr;
-  if (field.fieldType === "file" && typeof value === "string" && value.trim() !== "") {
-    const url = value.trim();
-    if (url.startsWith("http") || url.startsWith("//"))
-      return <img src={url} alt="" className="entity-list-cell-image" />;
-    return url;
-  }
-  return String(value);
 }

@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import type { Metadata } from "next";
 import { getTenantByCustomDomain } from "@/lib/tenant";
+import { isCustomerSiteEnabled } from "@/lib/dashboard-features";
+import { prisma } from "@/lib/prisma";
 import { MarketingPage } from "./MarketingPage";
 
 export const metadata: Metadata = {
@@ -35,7 +37,13 @@ export default async function HomePage() {
     console.error("[HomePage] custom domain lookup failed", e);
   }
   if (tenant) {
-    redirect(`/s/${tenant.slug}`);
+    const row = await prisma.tenant.findUnique({
+      where: { id: tenant.id },
+      select: { settings: true },
+    });
+    if (isCustomerSiteEnabled(row?.settings ?? null)) {
+      redirect(`/s/${tenant.slug}`);
+    }
   }
   return <MarketingPage />;
 }

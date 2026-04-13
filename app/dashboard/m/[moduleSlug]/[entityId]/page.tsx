@@ -17,7 +17,8 @@ import {
 } from "@/lib/module-settings";
 import { DeleteEntityButton } from "@/components/dashboard/DeleteEntityButton";
 import { RequestApprovalForm } from "@/components/dashboard/RequestApprovalForm";
-import { formatDate } from "@/lib/format";
+import { formatDate, getTenantLocale } from "@/lib/format";
+import { getTenantTimeZone } from "@/lib/tenant-timezone";
 import { requestApproval } from "@/app/dashboard/actions";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { isPlatformAdmin } from "@/lib/developer-setup";
@@ -132,7 +133,12 @@ export default async function EditEntityPage({
   const isSoftDeleted = entity.deletedAt != null;
 
   const inverseBacklinkSections =
-    !isSoftDeleted ? await getInverseRelationBacklinkSections(tenantId, moduleSlug, entityId) : [];
+    !isSoftDeleted
+      ? await getInverseRelationBacklinkSections(tenantId, moduleSlug, entityId, {
+          locale: getTenantLocale(tenantRow?.settings ?? null),
+          timeZone: getTenantTimeZone(tenantRow?.settings ?? null),
+        })
+      : [];
 
   const fieldTypeBySlug = Object.fromEntries(module_.fields.map((f) => [f.slug, f.fieldType]));
 

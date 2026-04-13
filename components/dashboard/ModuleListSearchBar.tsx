@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Suspense, useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-const DEBOUNCE_MS = 280;
+const DEBOUNCE_MS = 520;
 
 function ModuleListSearchBarClient({
   initialQuery,
@@ -19,9 +19,26 @@ function ModuleListSearchBarClient({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const paramsSnapshotRef = useRef(searchParams.toString());
   paramsSnapshotRef.current = searchParams.toString();
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const inputRef = useRef<HTMLInputElement>(null);
+  /** `q` from the last debounced `router.replace`; when that URL round-trips, avoid resetting the input (user may still be typing). */
+  const pendingOwnQueryRef = useRef<string | null>(null);
 
   useEffect(() => {
-    setValue(initialQuery);
+    const uq = (initialQuery ?? "").trim();
+    const local = valueRef.current.trim();
+    if (uq === local) return;
+    const pending = pendingOwnQueryRef.current;
+    if (pending !== null && uq === pending) {
+      pendingOwnQueryRef.current = null;
+      return;
+    }
+    pendingOwnQueryRef.current = null;
+    if (inputRef.current && document.activeElement === inputRef.current) return;
+    if (uq.length > 0 && local.startsWith(uq) && local.length > uq.length) return;
+    if (local.length > 0 && uq.startsWith(local) && uq.length > local.length) return;
+    setValue(initialQuery ?? "");
   }, [initialQuery]);
 
   useEffect(() => {
@@ -36,6 +53,7 @@ function ModuleListSearchBarClient({
       params.delete("page");
       const qs = params.toString();
       const href = qs ? `${pathname}?${qs}` : pathname;
+      pendingOwnQueryRef.current = localTrimmed;
       startTransition(() => {
         router.replace(href);
       });
@@ -43,7 +61,7 @@ function ModuleListSearchBarClient({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [value, pathname, router]);
+  }, [value, pathname, router, startTransition]);
 
   const clearHref = (() => {
     const params = new URLSearchParams(searchParams.toString());
@@ -59,6 +77,7 @@ function ModuleListSearchBarClient({
     <div className={`module-list-search-bar${isPending ? " module-list-search-bar--pending" : ""}`}>
       <div className="module-list-search-form" role="search">
         <input
+          ref={inputRef}
           id="module-list-q"
           type="search"
           value={value}

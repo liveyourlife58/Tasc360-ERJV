@@ -14,6 +14,9 @@ type ViewItem = {
     dateField?: string;
     boardLaneSource?: string;
     boardLaneValues?: unknown;
+    boardCardFieldSlugs?: unknown;
+    boardCardShowLabels?: unknown;
+    boardCardLabelFieldSlugs?: unknown;
   } | null;
   filter?: unknown[];
   sort?: unknown[];
@@ -28,6 +31,7 @@ type CreateViewCtx = {
 
 export function ModuleViewSelectorRow({
   moduleSlug,
+  moduleFieldsMeta,
   views,
   currentViewId,
   defaultViewId,
@@ -45,6 +49,8 @@ export function ModuleViewSelectorRow({
   createViewCtx,
 }: {
   moduleSlug: string;
+  /** All module fields (slug + label) for Kanban card picker order matches Manage fields. */
+  moduleFieldsMeta: { slug: string; name: string }[];
   views: ViewItem[];
   currentViewId: string | null;
   defaultViewId?: string | null;
@@ -67,6 +73,7 @@ export function ModuleViewSelectorRow({
     <div className="view-selector-row">
       <ViewSelector
         moduleSlug={moduleSlug}
+        moduleFieldsMeta={moduleFieldsMeta}
         views={views}
         currentViewId={currentViewId}
         defaultViewId={defaultViewId}

@@ -17,7 +17,7 @@ export type ViewConfig = {
   columns?: string[] | unknown;
 };
 
-function getEntitySortValue(
+export function getEntitySortValue(
   entity: { id: string; data: unknown; createdAt?: Date },
   field: string
 ): unknown {
@@ -28,6 +28,32 @@ function getEntitySortValue(
   return data[field];
 }
 
+/** Compare two cell values for list / view sorting (nulls last). */
+export function compareSortValues(av: unknown, bv: unknown): number {
+  if (av == null && bv == null) return 0;
+  if (av == null) return 1;
+  if (bv == null) return -1;
+  if (typeof av === "string" && typeof bv === "string") {
+    return av.localeCompare(bv);
+  }
+  if (typeof av === "number" && typeof bv === "number") {
+    return av - bv;
+  }
+  if (av instanceof Date && bv instanceof Date) {
+    return av.getTime() - bv.getTime();
+  }
+  return String(av).localeCompare(String(bv));
+}
+
+function finiteNumberFromUnknown(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
 function matchesCondition(
   value: unknown,
   op: string,
@@ -36,10 +62,18 @@ function matchesCondition(
   if (op === "empty") {
     return value == null || value === "";
   }
-  if (op === "eq") return value === condValue;
-  if (op === "neq") return value !== condValue;
   if (typeof value === "string" && typeof condValue === "string") {
     if (op === "contains") return value.toLowerCase().includes(condValue.toLowerCase());
+  }
+  const nv = finiteNumberFromUnknown(value);
+  const cvn = finiteNumberFromUnknown(condValue);
+  if (nv !== null && cvn !== null) {
+    if (op === "eq") return nv === cvn;
+    if (op === "neq") return nv !== cvn;
+    if (op === "gt") return nv > cvn;
+    if (op === "gte") return nv >= cvn;
+    if (op === "lt") return nv < cvn;
+    if (op === "lte") return nv <= cvn;
   }
   if (typeof value === "number" && typeof condValue === "number") {
     if (op === "gt") return value > condValue;
@@ -50,6 +84,8 @@ function matchesCondition(
   if (value instanceof Date && condValue instanceof Date) {
     const t = value.getTime();
     const c = condValue.getTime();
+    if (op === "eq") return t === c;
+    if (op === "neq") return t !== c;
     if (op === "gt") return t > c;
     if (op === "gte") return t >= c;
     if (op === "lt") return t < c;
@@ -59,12 +95,28 @@ function matchesCondition(
     const c = new Date(condValue).getTime();
     if (!Number.isNaN(c)) {
       const t = value.getTime();
+      if (op === "eq") return t === c;
+      if (op === "neq") return t !== c;
       if (op === "gt") return t > c;
       if (op === "gte") return t >= c;
       if (op === "lt") return t < c;
       if (op === "lte") return t <= c;
     }
   }
+  if (typeof value === "string" && typeof condValue === "string") {
+    const tv = Date.parse(value);
+    const cv = Date.parse(condValue);
+    if (!Number.isNaN(tv) && !Number.isNaN(cv)) {
+      if (op === "eq") return tv === cv;
+      if (op === "neq") return tv !== cv;
+      if (op === "gt") return tv > cv;
+      if (op === "gte") return tv >= cv;
+      if (op === "lt") return tv < cv;
+      if (op === "lte") return tv <= cv;
+    }
+  }
+  if (op === "eq") return value === condValue;
+  if (op === "neq") return value !== condValue;
   return false;
 }
 
@@ -139,19 +191,7 @@ export function applyViewToEntities<T extends { id: string; data: unknown }>(
           b as { id: string; data: unknown; createdAt?: Date },
           s.field
         );
-        let cmp = 0;
-        if (av == null && bv == null) cmp = 0;
-        else if (av == null) cmp = 1;
-        else if (bv == null) cmp = -1;
-        else if (typeof av === "string" && typeof bv === "string") {
-          cmp = av.localeCompare(bv);
-        } else if (typeof av === "number" && typeof bv === "number") {
-          cmp = av - bv;
-        } else if (av instanceof Date && bv instanceof Date) {
-          cmp = av.getTime() - bv.getTime();
-        } else {
-          cmp = String(av).localeCompare(String(bv));
-        }
+        const cmp = compareSortValues(av, bv);
         if (cmp !== 0) return s.dir === "desc" ? -cmp : cmp;
       }
       return 0;

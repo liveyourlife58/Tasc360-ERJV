@@ -1,8 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useMemo, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import {
+  formatEntityFieldValue,
+  isEntityFieldEmptyForBoardCard,
+} from "@/lib/entity-field-display";
+import type { EntityFieldDef, EntityForFieldDisplay } from "@/lib/entity-field-display";
+import { fieldHighlightClassNameForColumn } from "@/lib/field-highlight";
 
 type Field = {
   id: string;
@@ -95,6 +102,28 @@ function buildLanes(
   return lanes;
 }
 
+/** Same rules as list cells: highlightRules + deadline* ops, cross-field when/highlightFieldSlugs. */
+function withFieldHighlight(
+  inner: ReactNode,
+  f: Field,
+  data: Record<string, unknown>,
+  allFields: Field[],
+  tenantTimeZone?: string
+): ReactNode {
+  const raw = data[f.slug];
+  const hl = fieldHighlightClassNameForColumn(f.slug, f.fieldType, raw, f.settings, {
+    data,
+    fields: allFields,
+    tenantTimeZone,
+  });
+  if (!hl) return inner;
+  return (
+    <span className={`entity-table-cell-highlight ${hl.className}`} style={hl.style}>
+      {inner}
+    </span>
+  );
+}
+
 export function EntityBoard({
   moduleSlug,
   entities,
@@ -105,6 +134,13 @@ export function EntityBoard({
   boardOrderedDefinedValues,
   boardColumnLabels,
   updateColumnAction,
+  boardCardFieldSlugs,
+  boardCardLabelFieldSlugs = [],
+  relationLabels,
+  tenantUserLabels,
+  tenantLocale,
+  tenantTimeZone,
+  activityCellSummaries,
 }: {
   moduleSlug: string;
   entities: Entity[];
@@ -117,10 +153,29 @@ export function EntityBoard({
   /** When grouping by relation, map related id → display label (column headers). */
   boardColumnLabels?: Record<string, string>;
   updateColumnAction: (entityId: string, moduleSlug: string, fieldSlug: string, value: string) => Promise<{ error?: string }>;
+  /** When set, first slug is the card title (link); remaining slugs render as secondary lines. */
+  boardCardFieldSlugs?: string[];
+  /** Slugs that show “Field name:” before the value (subset of card lines). */
+  boardCardLabelFieldSlugs?: string[];
+  relationLabels?: Record<string, Record<string, string>>;
+  tenantUserLabels?: Record<string, string>;
+  tenantLocale?: string;
+  tenantTimeZone?: string;
+  activityCellSummaries?: Record<string, Record<string, string>>;
 }) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const titleField = fields[0]?.slug ?? "name";
+  const fieldBySlug = useMemo(() => new Map(fields.map((f) => [f.slug, f])), [fields]);
+  const labelSlugSet = useMemo(
+    () => new Set((boardCardLabelFieldSlugs ?? []).filter(Boolean)),
+    [boardCardLabelFieldSlugs]
+  );
+  const showLabelFor = (slug: string) => labelSlugSet.has(slug);
+  const cardFieldDefs = useMemo(() => {
+    if (!boardCardFieldSlugs?.length) return [];
+    return boardCardFieldSlugs.map((s) => fieldBySlug.get(s)).filter((f): f is Field => Boolean(f));
+  }, [boardCardFieldSlugs, fieldBySlug]);
 
   const lanes = useMemo(
     () =>
@@ -203,7 +258,8 @@ export function EntityBoard({
           <h3 className="entity-board-column-title">{lane.title}</h3>
           <div className="entity-board-day-events">
             {(byLane.get(lane.reactKey) ?? []).map((entity) => {
-              const title = String((entity.data as Record<string, unknown>)?.[titleField] ?? "Untitled");
+              const data = entity.data as Record<string, unknown>;
+              const entityForFmt = entity as EntityForFieldDisplay;
               return (
                 <div
                   key={entity.id}
@@ -212,9 +268,93 @@ export function EntityBoard({
                   onDragStart={(e) => handleDragStart(e, entity.id)}
                   style={{ cursor: "grab" }}
                 >
-                  <Link href={`/dashboard/m/${moduleSlug}/${entity.id}`} onClick={(e) => e.stopPropagation()}>
-                    {title}
-                  </Link>
+                  {cardFieldDefs.length > 0 ? (
+                    (() => {
+                      const visible = cardFieldDefs.filter(
+                        (f) =>
+                          !isEntityFieldEmptyForBoardCard(
+                            data?.[f.slug],
+                            f as EntityFieldDef,
+                            entityForFmt,
+                            activityCellSummaries
+                          )
+                      );
+                      if (visible.length === 0) {
+                        return (
+                          <div className="entity-board-card-title">
+                            <Link href={`/dashboard/m/${moduleSlug}/${entity.id}`} onClick={(e) => e.stopPropagation()}>
+                              Untitled
+                            </Link>
+                          </div>
+                        );
+                      }
+                      return (
+                        <>
+                          {visible.map((f, i) => {
+                            const raw = data?.[f.slug];
+                            const inner = formatEntityFieldValue(
+                              raw,
+                              f as EntityFieldDef,
+                              entityForFmt,
+                              relationLabels,
+                              tenantUserLabels,
+                              tenantLocale,
+                              tenantTimeZone,
+                              activityCellSummaries
+                            );
+                            const shown = withFieldHighlight(inner, f, data, fields, tenantTimeZone);
+                            if (i === 0) {
+                              return (
+                                <div key={f.slug} className="entity-board-card-title">
+                                  <Link
+                                    href={`/dashboard/m/${moduleSlug}/${entity.id}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {showLabelFor(f.slug) && (
+                                      <span className="entity-board-card-label">{f.name}: </span>
+                                    )}
+                                    {shown}
+                                  </Link>
+                                </div>
+                              );
+                            }
+                            return (
+                              <div key={f.slug} className="entity-board-card-meta">
+                                {showLabelFor(f.slug) && (
+                                  <span className="entity-board-card-label">{f.name}: </span>
+                                )}
+                                {shown}
+                              </div>
+                            );
+                          })}
+                        </>
+                      );
+                    })()
+                  ) : (
+                    <Link href={`/dashboard/m/${moduleSlug}/${entity.id}`} onClick={(e) => e.stopPropagation()}>
+                      {(() => {
+                        const tf = fieldBySlug.get(titleField);
+                        const raw = data?.[titleField];
+                        if (!tf) {
+                          return raw == null || (typeof raw === "string" && raw.trim() === "")
+                            ? "Untitled"
+                            : String(raw);
+                        }
+                        if (isEntityFieldEmptyForBoardCard(raw, tf as EntityFieldDef, entityForFmt, activityCellSummaries)) {
+                          return "Untitled";
+                        }
+                        const valueNode = withFieldHighlight(String(raw), tf, data, fields, tenantTimeZone);
+                        return (
+                          <>
+                            {showLabelFor(titleField) && (
+                              <span className="entity-board-card-label">{tf.name}: </span>
+                            )}
+                            {valueNode}
+                          </>
+                        );
+                      })()}
+                    </Link>
+                  )}
                 </div>
               );
             })}

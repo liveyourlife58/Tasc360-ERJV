@@ -29,15 +29,14 @@ export function formatEntityEventActorLabel(
   createdByUser: CreatedByUserShape
 ): string {
   const d = data ?? {};
-  const email = typeof d.actorEmail === "string" ? d.actorEmail.trim() : "";
   const name = typeof d.actorName === "string" ? d.actorName.trim() : "";
-  if (email || name) {
-    if (name && email) return `${name} (${email})`;
-    return email || name;
-  }
+  if (name) return name;
+  const email = typeof d.actorEmail === "string" ? d.actorEmail.trim() : "";
+  if (email) return "User";
   if (createdByUser) {
     const n = createdByUser.name?.trim();
-    return n || createdByUser.email;
+    if (n) return n;
+    return "User";
   }
   if (d.source === "api") {
     const p = typeof d.apiKeyPrefix === "string" && d.apiKeyPrefix ? ` key ${d.apiKeyPrefix}…` : "";

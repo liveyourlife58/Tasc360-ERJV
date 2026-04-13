@@ -17,6 +17,8 @@ import {
   loadActivitySummariesForEntities,
   stripActivityFieldValues,
 } from "@/lib/activity-field";
+import { getTenantLocale } from "@/lib/format";
+import { getTenantTimeZone } from "@/lib/tenant-timezone";
 
 async function requireDashboardPermission(permission: string) {
   const h = await headers();
@@ -557,16 +559,22 @@ export async function getRelationEntityData(moduleSlug: string, entityIds: strin
   const ids = entityIds.filter((id) => typeof id === "string" && id.trim()).slice(0, 100);
   if (ids.length === 0) return { error: null, entities: [], fields: [] };
 
-  const module_ = await prisma.module.findFirst({
-    where: { tenantId, slug: moduleSlug, isActive: true },
-    select: {
-      id: true,
-      fields: {
-        orderBy: { sortOrder: "asc" },
-        select: { slug: true, name: true, fieldType: true, settings: true },
+  const [module_, tenantRow] = await Promise.all([
+    prisma.module.findFirst({
+      where: { tenantId, slug: moduleSlug, isActive: true },
+      select: {
+        id: true,
+        fields: {
+          orderBy: { sortOrder: "asc" },
+          select: { slug: true, name: true, fieldType: true, settings: true },
+        },
       },
-    },
-  });
+    }),
+    prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    }),
+  ]);
   if (!module_) return { error: "Module not found", entities: null, fields: null };
 
   const entities = await prisma.entity.findMany({
@@ -581,10 +589,15 @@ export async function getRelationEntityData(moduleSlug: string, entityIds: strin
     settings: f.settings ?? undefined,
   }));
   const activityDefs = fields.filter((f) => f.fieldType === "activity").map((f) => ({ slug: f.slug, settings: f.settings }));
+  const activityFormatOpts = {
+    locale: getTenantLocale(tenantRow?.settings ?? null),
+    timeZone: getTenantTimeZone(tenantRow?.settings ?? null),
+  };
   const activityMap = await loadActivitySummariesForEntities(
     tenantId,
     entities.map((e) => e.id),
-    activityDefs
+    activityDefs,
+    activityFormatOpts
   );
   const activityByEntityId = Object.fromEntries(
     [...activityMap.entries()].map(([id, rec]) => [id, rec])
@@ -1075,6 +1088,18 @@ export async function updateView(
     if (boardLaneSource === "custom" && boardLaneValues.length > 0) {
       settings.boardLaneValues = boardLaneValues;
     }
+    const boardCardFieldsRaw = (formData.get("boardCardFields") as string)?.trim() ?? "";
+    const boardCardFieldSlugs = boardCardFieldsRaw
+      ? boardCardFieldsRaw.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
+    if (boardCardFieldSlugs.length > 0) {
+      settings.boardCardFieldSlugs = boardCardFieldSlugs;
+    }
+    const boardCardLabelFieldsRaw = (formData.get("boardCardLabelFields") as string)?.trim() ?? "";
+    const boardCardLabelFieldSlugs = boardCardLabelFieldsRaw
+      ? boardCardLabelFieldsRaw.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
+    settings.boardCardLabelFieldSlugs = boardCardLabelFieldSlugs;
   }
   if (viewType === "calendar" && dateField) settings.dateField = dateField;
 

@@ -16,6 +16,9 @@ type ViewItem = {
     dateField?: string;
     boardLaneSource?: string;
     boardLaneValues?: unknown;
+    boardCardFieldSlugs?: unknown;
+    boardCardShowLabels?: unknown;
+    boardCardLabelFieldSlugs?: unknown;
   } | null;
   filter?: unknown[];
   sort?: unknown[];
@@ -57,6 +60,7 @@ function closeModal(setEditViewsOpen: (v: boolean) => void, setEditingViewId: (v
 
 export function ViewSelector({
   moduleSlug,
+  moduleFieldsMeta,
   views,
   currentViewId,
   fieldSlugs,
@@ -75,6 +79,7 @@ export function ViewSelector({
   setDefaultViewAction,
 }: {
   moduleSlug: string;
+  moduleFieldsMeta: { slug: string; name: string }[];
   views: ViewItem[];
   currentViewId: string | null;
   fieldSlugs: string[];
@@ -150,7 +155,7 @@ export function ViewSelector({
             aria-label="Edit views"
             onClick={(e) => e.target === e.currentTarget && closeModal(setEditViewsOpen, setEditingViewId)}
           >
-            <div className="settings-modal">
+            <div className="settings-modal settings-modal--wide edit-views-modal">
               <div className="settings-modal-header">
                 <h2 className="settings-modal-title">
                   {editingView ? `Edit view: ${editingView.name}` : "Edit views"}
@@ -175,6 +180,7 @@ export function ViewSelector({
                       ← Back to list
                     </button>
                     <EditViewForm
+                      key={editingView.id}
                       viewId={editingView.id}
                       moduleSlug={moduleSlug}
                       initialName={editingView.name}
@@ -187,10 +193,22 @@ export function ViewSelector({
                           ? (editingView.settings?.boardLaneValues as string[]).filter((x) => typeof x === "string")
                           : null
                       }
+                      initialBoardCardFieldSlugs={
+                        Array.isArray(editingView.settings?.boardCardFieldSlugs)
+                          ? (editingView.settings.boardCardFieldSlugs as unknown[]).filter((x): x is string => typeof x === "string")
+                          : []
+                      }
+                      initialBoardCardShowLabels={editingView.settings?.boardCardShowLabels === true}
+                      initialBoardCardLabelFieldSlugs={
+                        Array.isArray(editingView.settings?.boardCardLabelFieldSlugs)
+                          ? (editingView.settings.boardCardLabelFieldSlugs as unknown[]).filter((x): x is string => typeof x === "string")
+                          : undefined
+                      }
                       initialDateField={editingView.settings?.dateField ?? null}
                       initialFilter={Array.isArray(editingView.filter) ? editingView.filter : []}
                       initialSort={Array.isArray(editingView.sort) ? editingView.sort : []}
                       fieldSlugs={fieldSlugs}
+                      moduleFieldsMeta={moduleFieldsMeta}
                       selectFieldSlugs={selectFieldSlugs ?? []}
                       selectFieldsMeta={selectFieldsMeta ?? []}
                       relationFieldSlugs={relationFieldSlugs ?? []}

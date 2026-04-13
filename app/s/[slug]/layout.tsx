@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import type { Metadata, Viewport } from "next";
 import { getTenantBySlug, getPublicModulesFromSettings } from "@/lib/tenant";
+import { isCustomerSiteEnabled } from "@/lib/dashboard-features";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { getSiteMeta, getCanonicalUrl } from "@/lib/site-seo";
 import { getTenantLocale } from "@/lib/format";
@@ -21,7 +22,7 @@ export async function generateViewport({
 }): Promise<Viewport> {
   const { slug } = await params;
   const tenant = await getTenantBySlug(slug);
-  if (!tenant) return {};
+  if (!tenant || !isCustomerSiteEnabled(tenant.settings)) return {};
   const site = (tenant.settings as Record<string, unknown>)?.site as Record<string, unknown> | undefined;
   const primaryColor = (site?.primaryColor as string) ?? "#0d9488";
   return { themeColor: primaryColor };
@@ -34,7 +35,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const tenant = await getTenantBySlug(slug);
-  if (!tenant) return { title: "Not found" };
+  if (!tenant || !isCustomerSiteEnabled(tenant.settings)) return { title: "Not found" };
   const h = await headers();
   const meta = getSiteMeta(tenant);
   const site = (tenant.settings as Record<string, unknown>)?.site as Record<string, unknown> | undefined;
@@ -79,6 +80,7 @@ export default async function SiteLayout({
   const { slug } = await params;
   const tenant = await getTenantBySlug(slug);
   if (!tenant) notFound();
+  if (!isCustomerSiteEnabled(tenant.settings)) notFound();
 
   const settings = (tenant.settings as Record<string, unknown>) ?? {};
   const site = (settings.site as Record<string, unknown>) ?? {};

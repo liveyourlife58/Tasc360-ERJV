@@ -1,4 +1,5 @@
 import { getTenantBySlug } from "@/lib/tenant";
+import { isCustomerSiteEnabled } from "@/lib/dashboard-features";
 import { getSiteMeta, getBaseUrlForSitemap } from "@/lib/site-seo";
 
 export async function GET(
@@ -7,7 +8,7 @@ export async function GET(
 ) {
   const { slug } = await params;
   const tenant = await getTenantBySlug(slug);
-  if (!tenant) {
+  if (!tenant || !isCustomerSiteEnabled(tenant.settings)) {
     return new Response("User-agent: *\nDisallow: /", {
       status: 404,
       headers: { "Content-Type": "text/plain" },

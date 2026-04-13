@@ -1,6 +1,7 @@
 "use server";
 
 import { getTenantBySlug } from "@/lib/tenant";
+import { isCustomerSiteEnabled } from "@/lib/dashboard-features";
 import { prisma } from "@/lib/prisma";
 import { checkCapacity } from "@/lib/capacity";
 import { getTenantConnectConfig } from "@/lib/stripe-connect";
@@ -13,6 +14,7 @@ export async function submitCheckout(
 ): Promise<{ success: true } | { redirectUrl: string } | { error: string }> {
   const tenant = await getTenantBySlug(tenantSlug);
   if (!tenant) return { error: "Site not found." };
+  if (!isCustomerSiteEnabled(tenant.settings)) return { error: "This site is not available." };
   if (!items.length) return { error: "Your cart is empty." };
   const name = (purchaser.name ?? "").trim();
   const email = (purchaser.email ?? "").trim().toLowerCase();

@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { getTenantBySlug, getPublicModuleBySegment } from "@/lib/tenant";
+import { isCustomerSiteEnabled } from "@/lib/dashboard-features";
 import { prisma } from "@/lib/prisma";
 import { getEntityAvailability } from "@/lib/capacity";
 import { checkPublicFormRateLimit } from "@/lib/public-form-rate-limit";
@@ -32,6 +33,7 @@ export async function submitPublicForm(
 ): Promise<PublicFormState> {
   const tenant = await getTenantBySlug(tenantSlug);
   if (!tenant) return { error: "Invalid request." };
+  if (!isCustomerSiteEnabled(tenant.settings)) return { error: "This site is not available." };
   const ip = await getClientIp();
   if (!checkPublicFormRateLimit(tenant.id, ip)) {
     return { error: "Too many submissions. Please try again later." };
@@ -76,7 +78,7 @@ export async function getEntityAvailabilityForSite(
   entityId: string
 ): Promise<Availability | null> {
   const tenant = await getTenantBySlug(tenantSlug);
-  if (!tenant) return null;
+  if (!tenant || !isCustomerSiteEnabled(tenant.settings)) return null;
   return getEntityAvailability(tenant.id, entityId);
 }
 
@@ -89,6 +91,7 @@ export async function joinWaitlist(
 ): Promise<PublicFormState> {
   const tenant = await getTenantBySlug(tenantSlug);
   if (!tenant) return { error: "Site not found." };
+  if (!isCustomerSiteEnabled(tenant.settings)) return { error: "This site is not available." };
   const settings = (tenant.settings as Record<string, unknown>) ?? {};
   const site = (settings.site as Record<string, unknown>) ?? {};
   const waitlist = site.waitlist as
@@ -137,6 +140,7 @@ export async function submitContactForm(
 ): Promise<ContactFormState> {
   const tenant = await getTenantBySlug(tenantSlug);
   if (!tenant) return { error: "Invalid request." };
+  if (!isCustomerSiteEnabled(tenant.settings)) return { error: "This site is not available." };
   const settings = (tenant.settings as Record<string, unknown>) ?? {};
   const pages = (settings.pages as Record<string, unknown>) ?? {};
   const contact = (pages.contact as Record<string, unknown>) ?? {};

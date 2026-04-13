@@ -1,4 +1,5 @@
 import { getTenantBySlug, getPublicModulesFromSettings } from "@/lib/tenant";
+import { isCustomerSiteEnabled } from "@/lib/dashboard-features";
 import { getSiteMeta, getBaseUrlForSitemap } from "@/lib/site-seo";
 import { prisma } from "@/lib/prisma";
 
@@ -19,7 +20,7 @@ export async function GET(
 ) {
   const { slug } = await params;
   const tenant = await getTenantBySlug(slug);
-  if (!tenant) return new Response("Not found", { status: 404 });
+  if (!tenant || !isCustomerSiteEnabled(tenant.settings)) return new Response("Not found", { status: 404 });
 
   const meta = getSiteMeta(tenant);
   let base = getBaseUrlForSitemap(meta.canonicalBaseUrl);

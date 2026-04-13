@@ -2,21 +2,27 @@ import Link from "next/link";
 
 export type DashboardHomeOverviewProps = {
   canReadEntities: boolean;
-  features: { approvals: boolean; activity: boolean; subscription: boolean };
+  /** When true, Modules on Home stays visible even if tenant has dashboardFeatures.settings off. */
+  isPlatformAdmin?: boolean;
+  features: {
+    approvals: boolean;
+    activity: boolean;
+    teamBilling: boolean;
+    settings: boolean;
+  };
   approvalPendingCount: number;
   activityLast7dCount: number;
   subscriptionCard: { title: string; body: string; href?: string } | null;
-  deadlineAttention: { moduleSlug: string; moduleName: string; entityId: string; title: string }[];
   orderedModules: { id: string; name: string; slug: string }[];
 };
 
 export function DashboardHomeOverview({
   canReadEntities,
+  isPlatformAdmin = false,
   features,
   approvalPendingCount,
   activityLast7dCount,
   subscriptionCard,
-  deadlineAttention,
   orderedModules,
 }: DashboardHomeOverviewProps) {
   return (
@@ -27,7 +33,7 @@ export function DashboardHomeOverview({
         </p>
       )}
 
-      {canReadEntities && (features.approvals || features.activity || (features.subscription && subscriptionCard)) && (
+      {canReadEntities && (features.approvals || features.activity || (features.teamBilling && subscriptionCard)) && (
         <section
           className="dashboard-overview-stats"
           style={{
@@ -86,7 +92,7 @@ export function DashboardHomeOverview({
               <span style={{ fontSize: "0.8125rem", color: "#64748b", marginTop: "0.2rem", display: "block" }}>events (7 days)</span>
             </Link>
           )}
-          {features.subscription && subscriptionCard && (
+          {features.teamBilling && subscriptionCard && (
             <div
               style={{
                 padding: "1rem 1.1rem",
@@ -109,70 +115,39 @@ export function DashboardHomeOverview({
         </section>
       )}
 
-      {canReadEntities && deadlineAttention.length > 0 && (
-        <section style={{ marginBottom: "1.75rem" }} aria-labelledby="dash-deadline-heading">
-          <h2 id="dash-deadline-heading" style={{ fontSize: "1.05rem", fontWeight: 600, marginBottom: "0.5rem", color: "#0f172a" }}>
-            Deadline attention
-          </h2>
-          <p className="settings-hint" style={{ marginBottom: "0.65rem", maxWidth: "42rem" }}>
-            Recent records that match your deadline list rules (same as module list priority). Not every matching record is shown.
-          </p>
-          <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white overflow-hidden" style={{ listStyle: "none", margin: 0, padding: 0, border: "1px solid #e2e8f0", borderRadius: "10px", background: "#fff" }}>
-            {deadlineAttention.map((row) => (
-              <li key={`${row.moduleSlug}-${row.entityId}`} style={{ margin: 0 }}>
-                <Link
-                  href={`/dashboard/m/${row.moduleSlug}/${row.entityId}`}
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "0.35rem 0.75rem",
-                    padding: "0.65rem 1rem",
-                    textDecoration: "none",
-                    color: "#0f172a",
-                    alignItems: "baseline",
-                  }}
-                  className="dashboard-overview-deadline-row"
-                >
-                  <span style={{ fontSize: "0.8125rem", color: "#64748b", flex: "0 0 auto" }}>{row.moduleName}</span>
-                  <span style={{ fontWeight: 500, flex: "1 1 12rem", minWidth: 0 }}>{row.title}</span>
-                </Link>
+      {(features.settings || isPlatformAdmin) && (
+        <section aria-labelledby="dash-modules-heading">
+          <div className="page-header" style={{ marginBottom: "0.75rem" }}>
+            <h1 id="dash-modules-heading" style={{ marginBottom: 0 }}>
+              Modules
+            </h1>
+            <div className="page-header-actions">
+              <Link href="/dashboard/settings" className="btn btn-secondary">
+                Modules &amp; data
+              </Link>
+            </div>
+          </div>
+          <ul className="dashboard-module-tiles" role="list">
+            {orderedModules.map((m) => (
+              <li key={m.id} className="dashboard-module-tile">
+                {canReadEntities ? (
+                  <Link href={`/dashboard/m/${m.slug}`} className="dashboard-module-tile-link">
+                    <span className="dashboard-module-tile-label">{m.name}</span>
+                  </Link>
+                ) : (
+                  <span
+                    className="dashboard-module-tile-link"
+                    style={{ cursor: "default", opacity: 0.75 }}
+                    aria-disabled
+                  >
+                    <span className="dashboard-module-tile-label">{m.name}</span>
+                  </span>
+                )}
               </li>
             ))}
           </ul>
         </section>
       )}
-
-      <section aria-labelledby="dash-modules-heading">
-        <div className="page-header" style={{ marginBottom: "0.75rem" }}>
-          <h1 id="dash-modules-heading" style={{ marginBottom: 0 }}>
-            Modules
-          </h1>
-          <div className="page-header-actions">
-            <Link href="/dashboard/settings" className="btn btn-secondary">
-              Modules &amp; data
-            </Link>
-          </div>
-        </div>
-        <ul className="dashboard-module-tiles" role="list">
-          {orderedModules.map((m) => (
-            <li key={m.id} className="dashboard-module-tile">
-              {canReadEntities ? (
-                <Link href={`/dashboard/m/${m.slug}`} className="dashboard-module-tile-link">
-                  <span className="dashboard-module-tile-label">{m.name}</span>
-                </Link>
-              ) : (
-                <span
-                  className="dashboard-module-tile-link"
-                  style={{ cursor: "default", opacity: 0.75 }}
-                  aria-disabled
-                >
-                  <span className="dashboard-module-tile-label">{m.name}</span>
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
     </div>
   );
 }
