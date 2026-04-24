@@ -1,6 +1,6 @@
 import { prisma } from "./prisma";
 import { labelFromTargetEntityData, resolveRelationDisplayFieldSlug } from "./relation-display";
-import { loadActivitySummariesForEntities } from "./activity-field";
+import { loadActivitySummariesForEntities, type ActivityAuditFormatContext } from "./activity-field";
 
 /** When true on a relation field, target-module entity pages list source records that link here (via that field). */
 export const RELATION_SHOW_BACKLINKS_ON_TARGET_KEY = "showBacklinksOnTarget";
@@ -109,11 +109,20 @@ async function enrichInverseBacklinkSectionsWithActivity(
   if (activityFieldDefs.length === 0) return;
 
   const uniqueEntityIds = [...new Set(sections.flatMap((s) => s.entities.map((e) => e.id)))];
+  const auditContextByEntityId = new Map<string, ActivityAuditFormatContext>();
+  for (const sec of sections) {
+    const fieldTypeBySlug = Object.fromEntries(sec.sourceFields.map((f) => [f.slug, f.fieldType]));
+    const ctx: ActivityAuditFormatContext = { fieldTypeBySlug };
+    for (const ent of sec.entities) {
+      auditContextByEntityId.set(ent.id, ctx);
+    }
+  }
   const summaries = await loadActivitySummariesForEntities(
     tenantId,
     uniqueEntityIds,
     activityFieldDefs,
-    formatOptions
+    formatOptions,
+    (entityId) => auditContextByEntityId.get(entityId)
   );
 
   for (const sec of sections) {

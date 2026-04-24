@@ -3,6 +3,39 @@ import { RelationMultiCell } from "@/components/dashboard/RelationMultiCell";
 import { formatDateIfApplicable } from "@/lib/format";
 import { ACTIVITY_SUMMARY_EVENT_SEPARATOR } from "@/lib/activity-summary-constants";
 
+/** One event block: first line (headline) + remainder (timestamp / change lines) — matches list activity cells. */
+export function ActivityEventSummaryDisplay({
+  text,
+  title,
+}: {
+  text: string;
+  /** e.g. full multi-event string for tooltip on list cells */
+  title?: string;
+}): ReactNode {
+  const nl = text.indexOf("\n");
+  const headline = nl === -1 ? text : text.slice(0, nl);
+  const rest = nl === -1 ? null : text.slice(nl + 1);
+  return (
+    <span style={{ fontSize: "0.8125rem", color: "#475569" }} title={title}>
+      <span style={{ display: "block", lineHeight: 1.35 }}>{headline}</span>
+      {rest ? (
+        <span
+          style={{
+            display: "block",
+            color: "#94a3b8",
+            fontSize: "0.75rem",
+            marginTop: "0.15rem",
+            lineHeight: 1.35,
+            whiteSpace: "pre-line",
+          }}
+        >
+          {rest}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 export type EntityFieldDef = {
   id: string;
   name: string;
@@ -61,28 +94,12 @@ export function formatEntityFieldValue(
       ? full.split(ACTIVITY_SUMMARY_EVENT_SEPARATOR).filter((c) => c.length > 0)
       : [full];
     const firstChunk = eventChunks[0] ?? "";
-    const nl = firstChunk.indexOf("\n");
-    const headline = nl === -1 ? firstChunk : firstChunk.slice(0, nl);
-    const when = nl === -1 ? null : firstChunk.slice(nl + 1);
     const hasMoreEvents = eventChunks.length > 1;
     return (
-      <span style={{ fontSize: "0.8125rem", color: "#475569" }} title={full}>
-        <span style={{ display: "block", lineHeight: 1.35 }}>{headline}</span>
-        {when ? (
-          <span
-            style={{
-              display: "block",
-              color: "#94a3b8",
-              fontSize: "0.75rem",
-              marginTop: "0.15rem",
-              lineHeight: 1.35,
-            }}
-          >
-            {when}
-          </span>
-        ) : null}
-        {hasMoreEvents ? <span style={{ color: "#94a3b8" }}> …</span> : null}
-      </span>
+      <>
+        <ActivityEventSummaryDisplay text={firstChunk} title={full} />
+        {hasMoreEvents ? <span style={{ color: "#94a3b8", fontSize: "0.8125rem" }}> …</span> : null}
+      </>
     );
   }
   if (value == null) return "—";

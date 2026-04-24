@@ -24,6 +24,71 @@ export function parseCalendarYmdToLocalDate(ymd: string): Date | null {
   return dt;
 }
 
+/**
+ * Calendar grid bucket `YYYY-MM-DD` for a stored date/datetime value, aligned with
+ * {@link formatDateIfApplicable} for `date` fields (no `new Date("YYYY-MM-DD")` UTC shift).
+ */
+export function dateFieldCalendarKey(value: unknown, timeZone?: string): string | null {
+  if (value == null || value === "") return null;
+  const tz = typeof timeZone === "string" && timeZone.trim() !== "" ? timeZone.trim() : undefined;
+
+  const ymdPartsInZone = (instant: Date): string | null => {
+    if (!tz) return null;
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(instant);
+    } catch {
+      return null;
+    }
+  };
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    const inTz = ymdPartsInZone(value);
+    if (inTz) return inTz;
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  }
+
+  if (typeof value !== "string") return null;
+
+  const ymd = extractYyyyMmDdFromStoredValue(value);
+  if (ymd.length === 10) {
+    const parts = ymd.split("-").map(Number);
+    const y = parts[0]!;
+    const mo = parts[1]!;
+    const day = parts[2]!;
+    if (
+      Number.isFinite(y) &&
+      Number.isFinite(mo) &&
+      Number.isFinite(day) &&
+      mo >= 1 &&
+      mo <= 12 &&
+      day >= 1 &&
+      day <= 31
+    ) {
+      const cal = new Date(y, mo - 1, day);
+      if (cal.getFullYear() === y && cal.getMonth() === mo - 1 && cal.getDate() === day) {
+        if (tz) {
+          const anchor = new Date(Date.UTC(y, mo - 1, day, 12, 0, 0));
+          const inTz = ymdPartsInZone(anchor);
+          if (inTz) return inTz;
+        }
+        return ymd;
+      }
+    }
+  }
+
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const inTz = ymdPartsInZone(d);
+  if (inTz) return inTz;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function getTenantLocale(settings: unknown): string | undefined {
   if (!settings || typeof settings !== "object") return undefined;
   const locale = (settings as Record<string, unknown>).locale as string | undefined;

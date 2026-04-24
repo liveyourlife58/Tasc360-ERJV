@@ -407,6 +407,34 @@ a[class*="bg-red-600"] {
   background: var(--field-hl-bg);
 }
 
+/* Inline chevron toggle that reveals inverse-relation backlinks under an entity list row. */
+.entity-list-backlink-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.7rem;
+  line-height: 1;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.3rem;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.entity-list-backlink-toggle:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.entity-list-backlink-toggle:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
 .entity-list-cell-image,
 .site-sidebar-cell-image {
   display: block;
@@ -3638,18 +3666,18 @@ a[class*="bg-red-600"] {
 }
 
 /* Related records (entity detail) */
+/* Flat section treatment: harmonizes with .entity-form-payment-section so the
+   entity detail page reads as a stack of sections with consistent dividers. */
 .related-records {
   margin-top: 1.5rem;
-  padding: 1rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  padding-top: 1.25rem;
+  border-top: 1px solid #e2e8f0;
 }
 
 .related-records h3 {
   font-size: 1rem;
   font-weight: 600;
-  color: #374151;
+  color: #0f172a;
   margin: 0 0 0.75rem;
 }
 
@@ -3716,6 +3744,478 @@ a[class*="bg-red-600"] {
 
 .activity-list li:last-child {
   border-bottom: none;
+}
+
+/* Entity edit: fields + Activity — columns share row height so the Activity rail bottoms align with the form column */
+.entity-edit-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(15rem, min(22rem, 28vw));
+  gap: 1rem 1.5rem;
+  align-items: stretch;
+  width: 100%;
+  max-width: 100%;
+  margin-inline: 0;
+  box-sizing: border-box;
+}
+
+.entity-edit-main-column {
+  min-width: 0;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.entity-edit-main-column > .entity-form {
+  flex: 1 1 auto;
+}
+
+/* Activity rail: matches .dashboard-sidebar (slate-50, slate-200 border, nav-like rows) */
+.entity-edit-activity-column.dashboard-activity-rail {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.75rem 0.35rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  box-shadow: none;
+  overflow-x: hidden;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.entity-edit-activity-heading {
+  margin: 0 0 0.35rem;
+  padding: 0 0.65rem 0.65rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #1e293b;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.entity-edit-activity-rail-brand {
+  color: var(--dashboard-primary, #0d9488);
+}
+
+.entity-edit-activity-rail-meta.activity-details-count {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.entity-edit-activity-rail-section-label {
+  display: block;
+  padding: 0.35rem 0.75rem 0.25rem;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+
+.entity-edit-activity-column .activity-list.entity-edit-activity-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
+.entity-edit-activity-empty {
+  flex: 1 1 auto;
+  margin: 0.5rem 0.5rem 0;
+  padding: 0.75rem 0.5rem;
+  font-size: 0.8125rem;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.entity-edit-activity-show-more {
+  display: block;
+  margin: 0.5rem 0.5rem 0.25rem;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  text-align: center;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.entity-edit-activity-show-more:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.entity-edit-activity-show-more:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.entity-activity-modal {
+  background: #ffffff;
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.35);
+  max-width: min(42rem, 92vw);
+  width: 100%;
+  max-height: min(80vh, 48rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.entity-activity-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.entity-activity-modal-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.entity-activity-modal-count {
+  font-weight: 400;
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.entity-activity-modal-close {
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+}
+
+.entity-activity-modal-close:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.entity-activity-modal-close:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.activity-list.entity-edit-activity-modal-list {
+  list-style: none;
+  padding: 0.5rem 0.5rem 1rem;
+  margin: 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.activity-list.entity-edit-activity-modal-list li {
+  margin: 0 0.25rem 0.125rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  color: #334155;
+}
+
+.activity-list.entity-edit-activity-modal-list li:hover {
+  background: #f1f5f9;
+}
+
+.entity-edit-activity-column .activity-list.entity-edit-activity-list li {
+  margin: 0 0.25rem 0.125rem;
+  padding: 0.45rem 0.5rem;
+  border-bottom: none;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  color: #334155;
+  transition: background-color 0.15s ease;
+}
+
+.entity-edit-activity-column .activity-list.entity-edit-activity-list li:hover {
+  background: #e2e8f0;
+}
+
+.entity-edit-activity-column .activity-list.entity-edit-activity-list li strong {
+  color: #1e293b;
+  font-weight: 600;
+}
+
+@media (max-width: 1040px) {
+  .entity-edit-layout {
+    grid-template-columns: 1fr;
+    width: 100%;
+    max-width: 100%;
+    margin-inline: 0;
+    justify-content: stretch;
+  }
+
+  .entity-edit-activity-column {
+    position: static;
+    width: 100%;
+    max-width: 100%;
+    max-height: none;
+    order: 1;
+  }
+
+  .entity-edit-main-column {
+    order: 0;
+    max-width: 100%;
+  }
+}
+
+/* Entity create/edit: default layout uses field sort order in a responsive grid */
+.entity-form-field-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.entity-form-field-group {
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+
+.entity-form-field-group-heading {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin: 0 0 0.65rem;
+  padding: 0;
+}
+
+.entity-form-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  gap: 0.85rem 1.15rem;
+  align-items: start;
+}
+
+/* Wider main column on entity edit: columns expand to fill the row (auto-fit collapses unused tracks) */
+.entity-form--wide .entity-form-fields-grid,
+.entity-form--wide .entity-form-fields-grid--payment {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12.5rem), 1fr));
+}
+
+.entity-form-custom-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.entity-form-fields-row {
+  display: grid;
+  grid-template-columns: repeat(var(--entity-form-columns, 3), minmax(0, 1fr));
+  gap: 0.85rem 1.15rem;
+  align-items: start;
+}
+
+.entity-form--wide .entity-form-fields-row {
+  gap: 0.85rem 1.25rem;
+}
+
+/* Entity form v2: explicit row/col placement + spans */
+.entity-form-placement-grid {
+  display: grid;
+  gap: 0.85rem 1.15rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.entity-form--wide .entity-form-placement-grid {
+  gap: 0.85rem 1.25rem;
+}
+
+.entity-form-placement-cell {
+  min-width: 0;
+}
+
+.entity-form-layout-editor-field--selected {
+  outline: 2px solid #0284c7;
+  outline-offset: 1px;
+}
+
+.entity-form-fields-grid > .form-group {
+  margin-bottom: 0;
+}
+
+.entity-form-field-cell--full {
+  grid-column: 1 / -1;
+}
+
+.entity-form .entity-form-fields-grid .form-group input,
+.entity-form .entity-form-fields-grid .form-group select,
+.entity-form .entity-form-fields-grid .form-group textarea {
+  max-width: 100%;
+}
+
+.entity-form-fields-grid--payment {
+  margin-top: 0.15rem;
+}
+
+/* Per-field auto-save status icon rendered inline inside the field label on the edit page. */
+.entity-form-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.entity-form-field-label-text {
+  display: inline;
+}
+.field-autosave-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  line-height: 0;
+  transition: color 120ms ease, opacity 120ms ease;
+}
+.field-autosave-icon--idle {
+  opacity: 0;
+}
+.field-autosave-icon--saving {
+  color: #64748b;
+  animation: field-autosave-spin 900ms linear infinite;
+}
+.field-autosave-icon--saved {
+  color: #059669;
+}
+.field-autosave-icon--error {
+  color: #b91c1c;
+}
+@keyframes field-autosave-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .field-autosave-icon--saving { animation: none; }
+}
+
+/* --------------------------------------------------------------------------
+   Entity form readability polish (scoped to .entity-form so the rest of the
+   app — login, settings, module config — keeps its existing form styles).
+
+   Goal: the value is the visual anchor, labels are secondary metadata, and
+   every input has a consistent height and focus affordance.
+   -------------------------------------------------------------------------- */
+
+/* Muted label so the value reads as the primary content, not the label. */
+.entity-form .form-group > label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #475569;
+  margin-bottom: 0.3rem;
+  letter-spacing: 0.01em;
+}
+
+/* Unified input sizing + focus ring across text/select/textarea/date so the
+   grid doesn't look ragged across field types. Uses direct-child (>) selector
+   so nested inputs (e.g. RelationMultiCombobox's search box) keep their
+   bespoke styling. */
+.entity-form .form-group > input,
+.entity-form .form-group > select,
+.entity-form .form-group > textarea {
+  min-height: 2.25rem;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.9375rem;
+  line-height: 1.3;
+  color: #0f172a;
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.entity-form .form-group > textarea {
+  min-height: 4.5rem;
+  line-height: 1.45;
+}
+.entity-form .form-group > input:hover,
+.entity-form .form-group > select:hover,
+.entity-form .form-group > textarea:hover {
+  border-color: #94a3b8;
+}
+.entity-form .form-group > input:focus,
+.entity-form .form-group > select:focus,
+.entity-form .form-group > textarea:focus {
+  outline: none;
+  border-color: var(--dashboard-primary, #0d9488);
+  box-shadow: 0 0 0 3px rgb(13 148 136 / 0.15);
+}
+.entity-form .form-group > input:disabled,
+.entity-form .form-group > select:disabled,
+.entity-form .form-group > textarea:disabled {
+  background-color: #f1f5f9;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+/* BlobUploadInput renders its URL input as a direct child of its own nested
+   .form-group; the direct-child rule above already picks it up. */
+
+/* --------------------------------------------------------------------------
+   Section chrome: the edit page is a stack of sections (form fields → payment
+   → related records). Give each section the same divider + spacing rhythm.
+   -------------------------------------------------------------------------- */
+
+.entity-form-payment-section {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.entity-form-payment-section .entity-form-field-group-heading,
+.related-records h3 {
+  color: #0f172a;
+}
+
+/* --------------------------------------------------------------------------
+   Responsive: at narrow widths the two-column layout squeezes the Activity
+   rail to the point of unreadable. Stack it under the form instead, and let
+   even custom placement grids collapse to one column on phones.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 960px) {
+  .entity-edit-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .entity-edit-activity-column.dashboard-activity-rail {
+    margin-top: 1rem;
+  }
+  .entity-edit-activity-column .activity-list.entity-edit-activity-list {
+    max-height: 22rem;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Placement grid and row-based layouts set their columns inline, so the
+     override must beat inline styles. */
+  .entity-form-placement-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto !important;
+  }
+  .entity-form-placement-cell {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+  }
+  .entity-form-fields-row {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
 }
 
 /* User guide (Help page) */

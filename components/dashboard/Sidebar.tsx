@@ -1,17 +1,11 @@
-import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { logout } from "@/app/login/actions";
 import type { DashboardSettings } from "@/lib/dashboard-settings";
 import { orderModulesBySettings } from "@/lib/dashboard-settings";
 import type { DashboardFeatures } from "@/lib/dashboard-features";
+import { SidebarActiveLink } from "@/components/dashboard/SidebarActiveLink";
 
 type TenantStub = { id: string; name: string; settings: unknown } | null;
-
-function isActive(href: string, pathname: string): boolean {
-  if (pathname === href) return true;
-  if (href === "/dashboard") return pathname === "/dashboard";
-  return pathname.startsWith(href + "/");
-}
 
 const linkBase =
   "block py-2 px-4 rounded-md mx-2 text-slate-700 hover:bg-slate-200 hover:no-underline transition-colors";
@@ -36,7 +30,6 @@ export async function Sidebar({
   dashboardSettings,
   dashboardFeatures = DEFAULT_DASHBOARD_FEATURES,
   tenantSlug,
-  pathname = "",
   showDeveloperLinks = false,
   showPlatformAdminLink = false,
 }: {
@@ -45,7 +38,6 @@ export async function Sidebar({
   dashboardSettings?: DashboardSettings;
   dashboardFeatures?: DashboardFeatures;
   tenantSlug?: string | null;
-  pathname?: string;
   showDeveloperLinks?: boolean;
   showPlatformAdminLink?: boolean;
 }) {
@@ -79,23 +71,16 @@ export async function Sidebar({
           </span>
           <nav className="flex flex-col gap-0.5">
             {dashboardFeatures.workspaceHome && (
-              <Link
-                href="/dashboard"
-                className={`${linkBase} ${isActive("/dashboard", pathname) ? linkActive : ""}`}
-              >
+              <SidebarActiveLink href="/dashboard" baseClassName={linkBase} activeClassName={linkActive}>
                 Dashboard
-              </Link>
+              </SidebarActiveLink>
             )}
             {orderedModules.map((m) => {
               const href = `/dashboard/m/${m.slug}`;
               return (
-                <Link
-                  key={m.id}
-                  href={href}
-                  className={`${linkBase} ${isActive(href, pathname) ? linkActive : ""}`}
-                >
+                <SidebarActiveLink key={m.id} href={href} baseClassName={linkBase} activeClassName={linkActive}>
                   {m.name}
-                </Link>
+                </SidebarActiveLink>
               );
             })}
           </nav>
@@ -106,54 +91,54 @@ export async function Sidebar({
           </span>
           <nav className="flex flex-col gap-0.5">
             {dashboardFeatures.help && (
-              <Link href="/dashboard/help" className={`${linkBase} ${isActive("/dashboard/help", pathname) ? linkActive : ""}`}>
+              <SidebarActiveLink href="/dashboard/help" baseClassName={linkBase} activeClassName={linkActive}>
                 Help
-              </Link>
+              </SidebarActiveLink>
             )}
             {dashboardFeatures.approvals && (
-              <Link href="/dashboard/approvals" className={`${linkBase} ${isActive("/dashboard/approvals", pathname) ? linkActive : ""}`}>
+              <SidebarActiveLink href="/dashboard/approvals" baseClassName={linkBase} activeClassName={linkActive}>
                 Approvals
-              </Link>
+              </SidebarActiveLink>
             )}
             {dashboardFeatures.activity && (
-              <Link href="/dashboard/activity" className={`${linkBase} ${isActive("/dashboard/activity", pathname) ? linkActive : ""}`}>
+              <SidebarActiveLink href="/dashboard/activity" baseClassName={linkBase} activeClassName={linkActive}>
                 Activity
-              </Link>
+              </SidebarActiveLink>
             )}
             {dashboardFeatures.consent && (
-              <Link href="/dashboard/consent" className={`${linkBase} ${isActive("/dashboard/consent", pathname) ? linkActive : ""}`}>
+              <SidebarActiveLink href="/dashboard/consent" baseClassName={linkBase} activeClassName={linkActive}>
                 Consent
-              </Link>
+              </SidebarActiveLink>
             )}
             {dashboardFeatures.finance && (
-              <Link href="/dashboard/finance" className={`${linkBase} ${isActive("/dashboard/finance", pathname) ? linkActive : ""}`}>
+              <SidebarActiveLink href="/dashboard/finance" baseClassName={linkBase} activeClassName={linkActive}>
                 Finance
-              </Link>
+              </SidebarActiveLink>
             )}
             {dashboardFeatures.integrations && showDeveloperLinks && (
-              <Link href="/dashboard/integrations" className={`${linkBase} ${isActive("/dashboard/integrations", pathname) ? linkActive : ""}`}>
+              <SidebarActiveLink href="/dashboard/integrations" baseClassName={linkBase} activeClassName={linkActive}>
                 Integrations
-              </Link>
+              </SidebarActiveLink>
             )}
             {dashboardFeatures.teamBilling && (
-              <Link
+              <SidebarActiveLink
                 href="/dashboard/team"
-                className={`${linkBase} ${
-                  isActive("/dashboard/team", pathname) || isActive("/dashboard/subscription", pathname) ? linkActive : ""
-                }`}
+                baseClassName={linkBase}
+                activeClassName={linkActive}
+                alsoActivePrefixes={["/dashboard/subscription"]}
               >
                 Team &amp; billing
-              </Link>
+              </SidebarActiveLink>
             )}
             {(dashboardFeatures.settings || showPlatformAdminLink) && (
-              <Link href="/dashboard/settings" className={`${linkBase} ${isActive("/dashboard/settings", pathname) ? linkActive : ""}`}>
+              <SidebarActiveLink href="/dashboard/settings" baseClassName={linkBase} activeClassName={linkActive}>
                 Settings
-              </Link>
+              </SidebarActiveLink>
             )}
             {showPlatformAdminLink && (
-              <Link href="/dashboard/platform" className={`${linkBase} ${isActive("/dashboard/platform", pathname) ? linkActive : ""}`}>
+              <SidebarActiveLink href="/dashboard/platform" baseClassName={linkBase} activeClassName={linkActive}>
                 Platform admin
-              </Link>
+              </SidebarActiveLink>
             )}
           </nav>
         </div>

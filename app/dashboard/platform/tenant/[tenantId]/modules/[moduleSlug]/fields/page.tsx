@@ -11,9 +11,12 @@ import {
   updateFieldInModuleAsPlatformAdminFormAction,
   removeFieldFromModuleAsPlatformAdminFormAction,
   reorderFieldInModuleAsPlatformAdminFormAction,
+  updateModuleEntityFormLayoutAsPlatformAdminFormAction,
   updateModuleListOrderAsPlatformAdminFormAction,
 } from "@/app/dashboard/actions";
 import { getModuleEntityListCreatedAtOrder } from "@/lib/module-settings";
+import { parseEntityFormLayout } from "@/lib/entity-form-layout";
+import { EntityFormLayoutEditor } from "@/components/dashboard/EntityFormLayoutEditor";
 import { AddFieldForm } from "@/components/dashboard/AddFieldForm";
 import { FieldListRow } from "@/components/dashboard/FieldListRow";
 import { PlatformModuleIdentityForm } from "../../PlatformModuleIdentityForm";
@@ -119,6 +122,27 @@ export default async function PlatformTenantModuleFieldsPage({
             Save list order
           </button>
         </form>
+      </section>
+
+      <section style={{ marginBottom: "2rem" }}>
+        <h2 className="subscription-subheading">Entity form layout</h2>
+        <p className="settings-intro" style={{ marginBottom: "0.75rem" }}>
+          Same setting as <strong>Manage fields</strong> in the tenant dashboard: default uses the field list sort
+          order; custom layout uses the saved grid (rows, columns, placement, and spans).
+        </p>
+        <EntityFormLayoutEditor
+          moduleSlug={moduleSlug}
+          fields={module_.fields.map((f) => ({
+            id: f.id,
+            slug: f.slug,
+            name: f.name,
+            fieldType: f.fieldType,
+            sortOrder: f.sortOrder,
+          }))}
+          initialLayout={parseEntityFormLayout(module_.settings)}
+          saveAction={updateModuleEntityFormLayoutAsPlatformAdminFormAction}
+          extraHiddenFields={[{ name: "targetTenantId", value: tenantId }]}
+        />
       </section>
 
       <section style={{ marginBottom: "2rem" }}>

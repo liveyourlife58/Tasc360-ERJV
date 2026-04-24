@@ -11,15 +11,20 @@ export function InverseRelationBacklinks({
   variant = "page",
 }: {
   sections: InverseBacklinkSection[];
-  /** `page`: full heading + intro; inner groups open. `list`: compact, nested under table row; groups start collapsed. */
-  variant?: "page" | "list";
+  /**
+   * `page`: standalone section with heading + intro; inner groups open.
+   * `page-inline`: same styling as `page` but no outer heading/intro (caller provides its own).
+   * `list`: compact, nested under table row; groups start collapsed.
+   */
+  variant?: "page" | "page-inline" | "list";
 }) {
   if (sections.length === 0) return null;
 
-  const groupsGap = variant === "list" ? "0.65rem" : "1.25rem";
-  const groupOpen = variant === "page";
-  const groupPadding = variant === "list" ? "0.5rem 0.65rem" : "0.75rem 1rem";
-  const fontSize = variant === "list" ? "0.8125rem" : undefined;
+  const isCompact = variant === "list";
+  const groupsGap = isCompact ? "0.65rem" : "1.25rem";
+  const groupOpen = !isCompact;
+  const groupPadding = isCompact ? "0.5rem 0.65rem" : "0.75rem 1rem";
+  const fontSize = isCompact ? "0.8125rem" : undefined;
 
   const groups = (
     <div style={{ display: "flex", flexDirection: "column", gap: groupsGap }}>
@@ -132,16 +137,13 @@ export function InverseRelationBacklinks({
     </div>
   );
 
-  if (variant === "list") {
+  if (variant === "list" || variant === "page-inline") {
     return groups;
   }
 
   return (
     <section className="inverse-relation-backlinks" style={{ marginTop: "2rem", marginBottom: "1.5rem" }}>
       <h2 style={{ fontSize: "1.125rem", marginBottom: "0.75rem" }}>Records linking here</h2>
-      <p style={{ fontSize: "0.875rem", color: "#64748b", marginBottom: "1rem" }}>
-        Shown when a relation field on another module is configured to list backlinks on the target record.
-      </p>
       {groups}
     </section>
   );

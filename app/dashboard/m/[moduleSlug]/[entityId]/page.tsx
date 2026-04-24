@@ -18,7 +18,7 @@ import {
 import { DeleteEntityButton } from "@/components/dashboard/DeleteEntityButton";
 import { RequestApprovalForm } from "@/components/dashboard/RequestApprovalForm";
 import { formatDate, getTenantLocale } from "@/lib/format";
-import { getTenantTimeZone } from "@/lib/tenant-timezone";
+import { getActivityDisplayTimeZone } from "@/lib/tenant-timezone";
 import { requestApproval } from "@/app/dashboard/actions";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { isPlatformAdmin } from "@/lib/developer-setup";
@@ -27,9 +27,13 @@ import { RestoreEntityButton } from "@/components/dashboard/RestoreEntityButton"
 import { InverseRelationBacklinks } from "@/components/dashboard/InverseRelationBacklinks";
 import { getInverseRelationBacklinkSections } from "@/lib/inverse-relation-backlinks";
 import { formatEntityEventActorLabel } from "@/lib/entity-event-actor";
-import { EntityEventChangesSummary } from "@/components/dashboard/EntityEventChangesSummary";
+import type { ActivityAuditFormatContext } from "@/lib/activity-field";
+import { summarizeActivityEventForListCell } from "@/lib/activity-field";
+import { ActivityEventSummaryDisplay } from "@/lib/entity-field-display";
+import { EntityActivityRailList } from "@/components/dashboard/EntityActivityRailList";
 import { isDashboardFeatureEnabled } from "@/lib/dashboard-features";
 import { formatTenantUserOptionLabel } from "@/lib/tenant-user-field";
+import { parseEntityFormLayout } from "@/lib/entity-form-layout";
 
 export default async function EditEntityPage({
   params,
@@ -132,11 +136,14 @@ export default async function EditEntityPage({
   const pendingApprovalTypes = pendingApprovals.map((a) => a.approvalType);
   const isSoftDeleted = entity.deletedAt != null;
 
+  const tenantLocaleForPage = getTenantLocale(tenantRow?.settings ?? null);
+  const activityDisplayTz = getActivityDisplayTimeZone(tenantRow?.settings ?? null, h);
+
   const inverseBacklinkSections =
     !isSoftDeleted
       ? await getInverseRelationBacklinkSections(tenantId, moduleSlug, entityId, {
-          locale: getTenantLocale(tenantRow?.settings ?? null),
-          timeZone: getTenantTimeZone(tenantRow?.settings ?? null),
+          locale: tenantLocaleForPage,
+          timeZone: activityDisplayTz,
         })
       : [];
 
@@ -151,6 +158,70 @@ export default async function EditEntityPage({
     createdAt: ev.createdAt.toISOString(),
     actorLabel: activityActorLabel(ev),
   }));
+
+  const hasActivityHistory = activityList.length > 0;
+  const hasActivityField = module_.fields.some((f) => f.fieldType === "activity");
+
+  const entityFormEl = (
+    <EntityForm
+      moduleSlug={moduleSlug}
+      moduleName={module_.name}
+      fields={module_.fields}
+      initialData={data}
+      entityId={entity.id}
+      relationOptions={relationOptions}
+      tenantUserOptions={tenantUserOptions}
+      entityActivityRows={entityActivityRows}
+      modulePaymentType={modulePaymentType ?? undefined}
+      entityPaymentType={entityPaymentType ?? undefined}
+      priceCents={priceCents ?? undefined}
+      suggestedDonationAmountCents={suggestedDonationAmountCents ?? undefined}
+      capacity={capacity ?? undefined}
+      entityFormLayout={parseEntityFormLayout(module_.settings)}
+      action={updateEntity.bind(null, { entityId: entity.id })}
+      autoSave
+      wideLayout
+      activityFieldPresentation={hasActivityField ? "sidebar" : "inline"}
+    />
+  );
+
+  const activityAuditCtx: ActivityAuditFormatContext = {
+    fieldTypeBySlug,
+    relationOptionsBySlug: relationOptionsForActivity,
+    tenantUserLabels: tenantUserLabelsForAudit,
+  };
+
+  const activityEventListItems = activityList.map((ev) => (
+    <li key={ev.id}>
+      <ActivityEventSummaryDisplay
+        text={summarizeActivityEventForListCell(ev, activityAuditCtx, {
+          locale: tenantLocaleForPage,
+          timeZone: activityDisplayTz,
+        })}
+      />
+    </li>
+  ));
+
+  const activityAsideEl = (
+    <aside
+      className="entity-edit-activity-column dashboard-activity-rail"
+      aria-labelledby="entity-activity-heading"
+    >
+      <h2 id="entity-activity-heading" className="entity-edit-activity-heading">
+        <span className="entity-edit-activity-rail-brand">Activity</span>
+        <span className="activity-details-count entity-edit-activity-rail-meta">
+          {" "}
+          · {activityList.length} event{activityList.length !== 1 ? "s" : ""}
+        </span>
+      </h2>
+      <span className="entity-edit-activity-rail-section-label">This record</span>
+      {hasActivityHistory ? (
+        <EntityActivityRailList items={activityEventListItems} />
+      ) : (
+        <p className="entity-edit-activity-empty">No activity yet.</p>
+      )}
+    </aside>
+  );
 
   return (
     <div>
@@ -232,22 +303,10 @@ export default async function EditEntityPage({
         </section>
       )}
       {!isSoftDeleted ? (
-        <EntityForm
-          moduleSlug={moduleSlug}
-          moduleName={module_.name}
-          fields={module_.fields}
-          initialData={data}
-          entityId={entity.id}
-          relationOptions={relationOptions}
-          tenantUserOptions={tenantUserOptions}
-          entityActivityRows={entityActivityRows}
-          modulePaymentType={modulePaymentType ?? undefined}
-          entityPaymentType={entityPaymentType ?? undefined}
-          priceCents={priceCents ?? undefined}
-          suggestedDonationAmountCents={suggestedDonationAmountCents ?? undefined}
-          capacity={capacity ?? undefined}
-          action={updateEntity.bind(null, { entityId: entity.id })}
-        />
+        <div className="entity-edit-layout">
+          <div className="entity-edit-main-column">{entityFormEl}</div>
+          {activityAsideEl}
+        </div>
       ) : (
         <section className="settings-hint" style={{ marginTop: "0.5rem" }}>
           <p style={{ marginBottom: "0.5rem" }}>Editing is disabled while the record is deleted. Restore it to edit fields.</p>
@@ -265,58 +324,52 @@ export default async function EditEntityPage({
           </pre>
         </section>
       )}
-      {activityList.length > 0 && (
+      {isSoftDeleted && hasActivityHistory && (
         <section className="related-records" style={{ marginBottom: "1.5rem" }}>
-          <details className="activity-details">
-            <summary className="activity-details-summary">
-              Activity
-              <span className="activity-details-count">
-                {" "}
-                · {activityList.length} event{activityList.length !== 1 ? "s" : ""}
-              </span>
-            </summary>
-            <ul className="activity-list">
-              {activityList.map((ev) => (
-                <li key={ev.id}>
-                  <div>
-                    <strong>{ev.eventType.replace(/_/g, " ")}</strong>
-                    <span style={{ marginLeft: "0.5rem", color: "#64748b" }}>
-                      · by {activityActorLabel(ev)}
-                    </span>
-                    <span style={{ marginLeft: "0.5rem", color: "#94a3b8" }}>
-                      {formatDate(ev.createdAt)}
-                    </span>
-                  </div>
-                  <EntityEventChangesSummary
-                    data={ev.data as Record<string, unknown> | null}
-                    fieldTypeBySlug={fieldTypeBySlug}
-                    relationOptionsBySlug={relationOptionsForActivity}
-                    tenantUserLabels={tenantUserLabelsForAudit}
-                  />
-                </li>
-              ))}
-            </ul>
-          </details>
+          <h3>Activity</h3>
+          <ul className="activity-list">{activityEventListItems}</ul>
         </section>
       )}
-      {relatedList.length > 0 && (
-        <section className="related-records" style={{ marginBottom: "1.5rem" }}>
-          <h3>Related records</h3>
-          <ul className="related-records-list">
-            {relatedList.map((r) => (
-              <li key={`${r.direction}-${r.relationType}-${r.id}`}>
-                <Link href={`/dashboard/m/${r.moduleSlug}/${r.id}`}>
-                  {r.moduleName}: {r.displayTitle}
-                </Link>
-                <span style={{ marginLeft: "0.5rem", fontSize: "0.8125rem", color: "#64748b" }}>
-                  ({r.relationFieldLabel} {r.direction === "out" ? "→" : "←"})
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {!isSoftDeleted && <InverseRelationBacklinks sections={inverseBacklinkSections} />}
+      {(() => {
+        const inverseBacklinkKeys = new Set<string>();
+        for (const sec of inverseBacklinkSections) {
+          for (const ent of sec.entities) {
+            inverseBacklinkKeys.add(`${sec.sourceModuleSlug}|${sec.fieldSlug}|${ent.id}`);
+          }
+        }
+        const compactRelated = relatedList.filter((r) => {
+          if (r.direction !== "in") return true;
+          return !inverseBacklinkKeys.has(`${r.moduleSlug}|${r.relationType}|${r.id}`);
+        });
+        const hasBacklinks = !isSoftDeleted && inverseBacklinkSections.length > 0;
+        const hasCompact = compactRelated.length > 0;
+        if (!hasBacklinks && !hasCompact) return null;
+        return (
+          <section className="related-records" style={{ marginBottom: "1.5rem" }}>
+            <h3>Related records</h3>
+            {hasCompact && (
+              <ul
+                className="related-records-list"
+                style={{ marginBottom: hasBacklinks ? "1rem" : undefined }}
+              >
+                {compactRelated.map((r) => (
+                  <li key={`${r.direction}-${r.relationType}-${r.id}`}>
+                    <Link href={`/dashboard/m/${r.moduleSlug}/${r.id}`}>
+                      {r.moduleName}: {r.displayTitle}
+                    </Link>
+                    <span style={{ marginLeft: "0.5rem", fontSize: "0.8125rem", color: "#64748b" }}>
+                      ({r.relationFieldLabel} {r.direction === "out" ? "→" : "←"})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {hasBacklinks && (
+              <InverseRelationBacklinks sections={inverseBacklinkSections} variant="page-inline" />
+            )}
+          </section>
+        );
+      })()}
     </div>
   );
 }

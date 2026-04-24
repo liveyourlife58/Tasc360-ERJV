@@ -86,6 +86,52 @@ export function formatAuditScalarForDisplay(value: unknown, maxLen = 240): strin
 
 export type AuditRelationOption = { id: string; label: string };
 
+/** Module context for resolving audit `fieldChanges` / `metadataChanges` to plain text (list activity column, etc.). */
+export type ActivityAuditFormatContext = {
+  fieldTypeBySlug: Record<string, string>;
+  relationOptionsBySlug?: Record<string, AuditRelationOption[]>;
+  tenantUserLabels?: Record<string, string>;
+};
+
+/** Multi-line summary of record/metadata diffs on an event (compact lines for list activity column and entity activity rail). */
+export function formatEventDataChangesPlainText(
+  data: Record<string, unknown> | null | undefined,
+  ctx: ActivityAuditFormatContext
+): string {
+  const fieldChanges = readFieldChangesFromEventData(data);
+  const metadataChanges = readMetadataChangesFromEventData(data);
+  const lines: string[] = [];
+  if (fieldChanges && Object.keys(fieldChanges).length > 0) {
+    for (const key of Object.keys(fieldChanges).sort()) {
+      const row = fieldChanges[key]!;
+      const before = formatFieldAuditValueForDisplay(
+        key,
+        row.before,
+        ctx.fieldTypeBySlug,
+        ctx.relationOptionsBySlug ?? null,
+        ctx.tenantUserLabels ?? null
+      );
+      const after = formatFieldAuditValueForDisplay(
+        key,
+        row.after,
+        ctx.fieldTypeBySlug,
+        ctx.relationOptionsBySlug ?? null,
+        ctx.tenantUserLabels ?? null
+      );
+      lines.push(`${key}: ${before} → ${after}`);
+    }
+  }
+  if (metadataChanges && Object.keys(metadataChanges).length > 0) {
+    for (const key of Object.keys(metadataChanges).sort()) {
+      const row = metadataChanges[key]!;
+      lines.push(
+        `${key}: ${formatAuditScalarForDisplay(row.before)} → ${formatAuditScalarForDisplay(row.after)}`
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
 /** Resolve relation / relation-multi stored ids to labels when module context is available. */
 export function formatFieldAuditValueForDisplay(
   fieldSlug: string,

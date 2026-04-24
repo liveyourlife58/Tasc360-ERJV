@@ -9,11 +9,14 @@ import {
   removeFieldFromModule,
   reorderFieldInModule,
   updateFieldInModule,
+  updateModuleEntityFormLayoutFormAction,
   updateModuleListOrderFormAction,
 } from "@/app/dashboard/actions";
 import { getModuleEntityListCreatedAtOrder } from "@/lib/module-settings";
+import { parseEntityFormLayout } from "@/lib/entity-form-layout";
 import { AddFieldForm } from "@/components/dashboard/AddFieldForm";
 import { FieldListRow } from "@/components/dashboard/FieldListRow";
+import { EntityFormLayoutEditor } from "@/components/dashboard/EntityFormLayoutEditor";
 
 export default async function ModuleFieldsPage({
   params,
@@ -80,6 +83,27 @@ export default async function ModuleFieldsPage({
             Save list order
           </button>
         </form>
+      </section>
+
+      <section style={{ marginBottom: "2rem" }}>
+        <h2 className="subscription-subheading">Entity form layout</h2>
+        <p className="settings-intro" style={{ marginBottom: "0.75rem" }}>
+          Control how fields appear on <strong>New record</strong> and <strong>Edit record</strong>. By default, fields
+          use the same order as on this page (the field table’s sort order). Choose a custom layout to place fields on a
+          grid with rows, columns, spans, and empty cells.
+        </p>
+        <EntityFormLayoutEditor
+          moduleSlug={moduleSlug}
+          fields={module_.fields.map((f) => ({
+            id: f.id,
+            slug: f.slug,
+            name: f.name,
+            fieldType: f.fieldType,
+            sortOrder: f.sortOrder,
+          }))}
+          initialLayout={parseEntityFormLayout(module_.settings)}
+          saveAction={updateModuleEntityFormLayoutFormAction}
+        />
       </section>
 
       <section style={{ marginBottom: "2rem" }}>

@@ -6,6 +6,7 @@ import { EntityForm } from "@/components/dashboard/EntityForm";
 import { createEntity } from "@/app/dashboard/actions";
 import { getRelationOptions } from "@/lib/relation-options";
 import { getModulePaymentType } from "@/lib/module-settings";
+import { parseEntityFormLayout } from "@/lib/entity-form-layout";
 import { formatTenantUserOptionLabel } from "@/lib/tenant-user-field";
 
 export default async function NewEntityPage({
@@ -56,6 +57,7 @@ export default async function NewEntityPage({
         relationOptions={relationOptions}
         tenantUserOptions={tenantUserOptions}
         modulePaymentType={modulePaymentType ?? undefined}
+        entityFormLayout={parseEntityFormLayout(module_.settings)}
         action={createEntity.bind(null, { tenantId, moduleId: module_.id, createdBy: userId })}
       />
     </div>

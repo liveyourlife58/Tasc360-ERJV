@@ -16,9 +16,12 @@ import {
   ACTIVITY_FIELD_MAX_PREVIEW_LIMIT,
   loadActivitySummariesForEntities,
   stripActivityFieldValues,
+  type ActivityAuditFormatContext,
 } from "@/lib/activity-field";
+import { getRelationOptions } from "@/lib/relation-options";
+import { formatTenantUserOptionLabel } from "@/lib/tenant-user-field";
 import { getTenantLocale } from "@/lib/format";
-import { getTenantTimeZone } from "@/lib/tenant-timezone";
+import { getActivityDisplayTimeZone } from "@/lib/tenant-timezone";
 
 async function requireDashboardPermission(permission: string) {
   const h = await headers();
@@ -450,6 +453,142 @@ export async function updateEntitySingleField(
   return {};
 }
 
+/**
+ * Save a single typed value onto an entity (used by per-field auto-save on the detail page).
+ *
+ * Accepts native types (string | number | boolean | string[] | null) so the caller doesn't
+ * have to stringify; we coerce to storage shape based on the field's declared `fieldType`.
+ * Returns the stored value so the client can confirm and reset its "dirty" state.
+ */
+export async function saveEntityFieldValue(
+  entityId: string,
+  moduleSlug: string,
+  fieldSlug: string,
+  rawValue: unknown
+): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> {
+  try {
+    await requireDashboardPermission(PERMISSIONS.entitiesWrite);
+  } catch {
+    return { ok: false, error: "Unauthorized" };
+  }
+  const h = await headers();
+  const tenantId = h.get("x-tenant-id");
+  const userId = h.get("x-user-id");
+  if (!tenantId || !userId) return { ok: false, error: "Unauthorized" };
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug, isActive: true },
+    include: { fields: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!module_) return { ok: false, error: "Module not found." };
+  const field = module_.fields.find((f) => f.slug === fieldSlug);
+  if (!field) return { ok: false, error: "Field not found." };
+  if (field.fieldType === "activity") return { ok: false, error: "This field is read-only." };
+
+  let normalized: unknown = null;
+  switch (field.fieldType) {
+    case "boolean": {
+      if (typeof rawValue === "boolean") normalized = rawValue;
+      else if (rawValue === "true") normalized = true;
+      else if (rawValue === "false") normalized = false;
+      else if (rawValue == null || rawValue === "") normalized = null;
+      else return { ok: false, error: "Invalid boolean value." };
+      break;
+    }
+    case "number": {
+      if (rawValue == null || rawValue === "") normalized = null;
+      else {
+        const n = typeof rawValue === "number" ? rawValue : Number(String(rawValue));
+        if (Number.isNaN(n)) return { ok: false, error: "Invalid number." };
+        normalized = n;
+      }
+      break;
+    }
+    case "relation-multi": {
+      const arr = Array.isArray(rawValue)
+        ? rawValue.filter((v): v is string => typeof v === "string" && v.trim() !== "")
+        : typeof rawValue === "string" && rawValue.trim() !== ""
+          ? [rawValue.trim()]
+          : [];
+      normalized = arr.length ? arr : null;
+      break;
+    }
+    case "tenant-user": {
+      const s = typeof rawValue === "string" ? rawValue.trim() : "";
+      if (s) {
+        const { validateTenantUserFieldValues } = await import("@/lib/tenant-user-field");
+        const tu = await validateTenantUserFieldValues(prisma, tenantId, [{ slug: fieldSlug, fieldType: "tenant-user" }], {
+          [fieldSlug]: s,
+        });
+        if (!tu.ok) return { ok: false, error: tu.message };
+      }
+      normalized = s || null;
+      break;
+    }
+    default: {
+      if (rawValue == null) normalized = null;
+      else {
+        const s = typeof rawValue === "string" ? rawValue : String(rawValue);
+        normalized = s === "" ? null : s;
+      }
+      break;
+    }
+  }
+
+  if (field.isRequired && (normalized == null || normalized === "" || (Array.isArray(normalized) && normalized.length === 0))) {
+    return { ok: false, error: `${field.name} is required.` };
+  }
+
+  const entity = await prisma.entity.findFirst({
+    where: { id: entityId, tenantId, moduleId: module_.id, deletedAt: null },
+    select: { id: true, data: true },
+  });
+  if (!entity) return { ok: false, error: "Entity not found." };
+  const prevData = (entity.data as Record<string, unknown>) ?? {};
+  if (deepEqualValues(prevData[fieldSlug] ?? null, normalized)) {
+    return { ok: true, value: normalized };
+  }
+  const nextData: Record<string, unknown> = { ...prevData, [fieldSlug]: normalized };
+  const searchText = Object.values(nextData)
+    .filter((v): v is string => typeof v === "string" && v.length > 0)
+    .join(" ")
+    .slice(0, 10000) || null;
+  await prisma.entity.update({
+    where: { id: entityId },
+    data: { data: nextData as object, searchText },
+  });
+  await syncRelationshipsForEntity(tenantId, entityId, nextData, module_.fields);
+  const actor = await entityEventActorPayload(userId);
+  const { computeShallowFieldChanges } = await import("@/lib/entity-event-field-changes");
+  const fieldChanges = computeShallowFieldChanges(prevData, nextData);
+  const eventData: Record<string, unknown> = { moduleSlug, ...actor };
+  if (Object.keys(fieldChanges).length > 0) eventData.fieldChanges = fieldChanges;
+  await prisma.event.create({
+    data: {
+      tenantId,
+      entityId,
+      eventType: "entity_updated",
+      data: eventData as object,
+      createdBy: userId,
+    },
+  });
+  const { fireWebhook } = await import("@/lib/webhooks");
+  fireWebhook(tenantId, "entity.updated", { entityId, moduleId: module_.id, data: nextData });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/${entityId}`);
+  return { ok: true, value: normalized };
+}
+
+function deepEqualValues(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a == null && b == null) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+  return false;
+}
+
 export type RelatedEntityRow = {
   id: string;
   moduleSlug: string;
@@ -554,7 +693,8 @@ export async function getRelatedEntities(
 /** Return entity data for given IDs in a relation target module (for relation-multi modal). */
 export async function getRelationEntityData(moduleSlug: string, entityIds: string[]) {
   await requireDashboardPermission(PERMISSIONS.entitiesRead);
-  const tenantId = (await headers()).get("x-tenant-id");
+  const h = await headers();
+  const tenantId = h.get("x-tenant-id");
   if (!tenantId) return { error: "Unauthorized", entities: null, fields: null };
   const ids = entityIds.filter((id) => typeof id === "string" && id.trim()).slice(0, 100);
   if (ids.length === 0) return { error: null, entities: [], fields: [] };
@@ -591,13 +731,37 @@ export async function getRelationEntityData(moduleSlug: string, entityIds: strin
   const activityDefs = fields.filter((f) => f.fieldType === "activity").map((f) => ({ slug: f.slug, settings: f.settings }));
   const activityFormatOpts = {
     locale: getTenantLocale(tenantRow?.settings ?? null),
-    timeZone: getTenantTimeZone(tenantRow?.settings ?? null),
+    timeZone: getActivityDisplayTimeZone(tenantRow?.settings ?? null, h),
   };
+
+  let activityAuditFormat: ActivityAuditFormatContext | undefined;
+  if (activityDefs.length > 0) {
+    const needsUsers = fields.some((f) => f.fieldType === "tenant-user");
+    const [relationOptionsMap, tenantUsersForAudit] = await Promise.all([
+      getRelationOptions(tenantId, module_.fields),
+      needsUsers
+        ? prisma.user.findMany({
+            where: { tenantId, isActive: true },
+            select: { id: true, name: true, email: true },
+          })
+        : Promise.resolve([] as { id: string; name: string | null; email: string }[]),
+    ]);
+    const tenantUserLabelsForAudit = needsUsers
+      ? Object.fromEntries(tenantUsersForAudit.map((u) => [u.id, formatTenantUserOptionLabel(u)]))
+      : undefined;
+    activityAuditFormat = {
+      fieldTypeBySlug: Object.fromEntries(module_.fields.map((f) => [f.slug, f.fieldType])),
+      relationOptionsBySlug: relationOptionsMap,
+      tenantUserLabels: tenantUserLabelsForAudit,
+    };
+  }
+
   const activityMap = await loadActivitySummariesForEntities(
     tenantId,
     entities.map((e) => e.id),
     activityDefs,
-    activityFormatOpts
+    activityFormatOpts,
+    activityAuditFormat
   );
   const activityByEntityId = Object.fromEntries(
     [...activityMap.entries()].map(([id, rec]) => [id, rec])
@@ -1190,6 +1354,128 @@ export async function updateModuleListOrderFormAction(formData: FormData) {
   revalidatePath(`/dashboard/m/${moduleSlug}`);
   revalidatePath(`/dashboard/m/${moduleSlug}/fields`);
   redirect(`/dashboard/m/${moduleSlug}/fields`);
+}
+
+/** Persist module.settings.entityFormLayout or clear it. Form: moduleSlug, layoutMode ("default" | "custom"), layoutJson (v2). Legacy: columns (2–4), orderJson (string[]). */
+export async function updateModuleEntityFormLayoutFormAction(formData: FormData) {
+  await requireDashboardPermission(PERMISSIONS.modulesManage);
+  const tenantId = (await headers()).get("x-tenant-id");
+  if (!tenantId) throw new Error("Unauthorized");
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  if (!moduleSlug) throw new Error("Missing module.");
+  const mode = (formData.get("layoutMode") as string)?.trim();
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId, slug: moduleSlug, isActive: true },
+    select: {
+      id: true,
+      settings: true,
+      fields: { select: { slug: true, sortOrder: true }, orderBy: { sortOrder: "asc" } },
+    },
+  });
+  if (!module_) throw new Error("Module not found.");
+  const prevSettings = (module_.settings as Record<string, unknown>) ?? {};
+  const {
+    mergeEntityFormLayoutIntoModuleSettings,
+    normalizeEntityFormLayoutOrder,
+    normalizeEntityFormLayoutV2,
+    parseLayoutJsonFromForm,
+  } = await import("@/lib/entity-form-layout");
+
+  let layout: import("@/lib/entity-form-layout").EntityFormLayout | null = null;
+  if (mode === "custom") {
+    const layoutJson = (formData.get("layoutJson") as string)?.trim() ?? "";
+    const parsedV2 = parseLayoutJsonFromForm(layoutJson);
+    if (parsedV2) {
+      layout = normalizeEntityFormLayoutV2(module_.fields, parsedV2);
+    } else {
+      const colRaw = Number((formData.get("columns") as string)?.trim() ?? "3");
+      const columns = ([2, 3, 4].includes(colRaw) ? colRaw : 3) as 2 | 3 | 4;
+      let order: string[] = [];
+      const orderJson = (formData.get("orderJson") as string)?.trim() ?? "[]";
+      try {
+        const parsed: unknown = JSON.parse(orderJson);
+        if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) {
+          order = parsed.map((x) => String(x).trim()).filter((s) => s.length > 0);
+        }
+      } catch {
+        // keep order []
+      }
+      const normalized = normalizeEntityFormLayoutOrder(module_.fields, order);
+      layout = { version: 1, columns, order: normalized };
+    }
+  }
+
+  const settings = mergeEntityFormLayoutIntoModuleSettings(prevSettings, layout);
+  await prisma.module.update({
+    where: { id: module_.id },
+    data: { settings: settings as object },
+  });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}`, "layout");
+  revalidatePath(`/dashboard/m/${moduleSlug}/fields`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/new`);
+  redirect(`/dashboard/m/${moduleSlug}/fields`);
+}
+
+/** Platform admin: same as updateModuleEntityFormLayoutFormAction for another tenant. Form: targetTenantId, moduleSlug, layoutMode, layoutJson (v2); legacy columns + orderJson. */
+export async function updateModuleEntityFormLayoutAsPlatformAdminFormAction(formData: FormData) {
+  await requirePlatformAdmin();
+  const targetTenantId = (formData.get("targetTenantId") as string)?.trim();
+  const moduleSlug = (formData.get("moduleSlug") as string)?.trim();
+  if (!targetTenantId || !moduleSlug) throw new Error("Missing target tenant or module.");
+  const mode = (formData.get("layoutMode") as string)?.trim();
+  const module_ = await prisma.module.findFirst({
+    where: { tenantId: targetTenantId, slug: moduleSlug, isActive: true },
+    select: {
+      id: true,
+      settings: true,
+      fields: { select: { slug: true, sortOrder: true }, orderBy: { sortOrder: "asc" } },
+    },
+  });
+  if (!module_) throw new Error("Module not found.");
+  const prevSettings = (module_.settings as Record<string, unknown>) ?? {};
+  const {
+    mergeEntityFormLayoutIntoModuleSettings,
+    normalizeEntityFormLayoutOrder,
+    normalizeEntityFormLayoutV2,
+    parseLayoutJsonFromForm,
+  } = await import("@/lib/entity-form-layout");
+
+  let layout: import("@/lib/entity-form-layout").EntityFormLayout | null = null;
+  if (mode === "custom") {
+    const layoutJson = (formData.get("layoutJson") as string)?.trim() ?? "";
+    const parsedV2 = parseLayoutJsonFromForm(layoutJson);
+    if (parsedV2) {
+      layout = normalizeEntityFormLayoutV2(module_.fields, parsedV2);
+    } else {
+      const colRaw = Number((formData.get("columns") as string)?.trim() ?? "3");
+      const columns = ([2, 3, 4].includes(colRaw) ? colRaw : 3) as 2 | 3 | 4;
+      let order: string[] = [];
+      const orderJson = (formData.get("orderJson") as string)?.trim() ?? "[]";
+      try {
+        const parsed: unknown = JSON.parse(orderJson);
+        if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) {
+          order = parsed.map((x) => String(x).trim()).filter((s) => s.length > 0);
+        }
+      } catch {
+        // keep order []
+      }
+      const normalized = normalizeEntityFormLayoutOrder(module_.fields, order);
+      layout = { version: 1, columns, order: normalized };
+    }
+  }
+
+  const settings = mergeEntityFormLayoutIntoModuleSettings(prevSettings, layout);
+  await prisma.module.update({
+    where: { id: module_.id },
+    data: { settings: settings as object },
+  });
+  revalidatePath(`/dashboard/m/${moduleSlug}`);
+  revalidatePath(`/dashboard/m/${moduleSlug}`, "layout");
+  revalidatePath(`/dashboard/m/${moduleSlug}/fields`);
+  revalidatePath(`/dashboard/m/${moduleSlug}/new`);
+  revalidatePath(platformFieldsRedirect(targetTenantId, moduleSlug));
+  redirect(platformFieldsRedirect(targetTenantId, moduleSlug));
 }
 
 /** Platform admin: same as updateModuleListOrderFormAction for another tenant. Form: targetTenantId, moduleSlug, listOrder. */
@@ -2770,17 +3056,20 @@ export async function hardDeleteEntityAsPlatformAdmin(
 
   const userId = (await headers()).get("x-user-id");
   const hardDeleteActor = await entityEventActorPayload(userId);
-  await prisma.event.create({
-    data: {
-      tenantId,
-      entityId,
-      eventType: "entity_hard_deleted",
-      data: { moduleSlug, ...hardDeleteActor } as object,
-      createdBy: userId,
-    },
-  });
   try {
-    await prisma.entity.delete({ where: { id: entityId } });
+    await prisma.$transaction(async (tx) => {
+      await tx.event.deleteMany({ where: { tenantId, entityId } });
+      await tx.entity.delete({ where: { id: entityId } });
+      await tx.event.create({
+        data: {
+          tenantId,
+          entityId: null,
+          eventType: "entity_hard_deleted",
+          data: { moduleSlug, deletedEntityId: entityId, ...hardDeleteActor } as object,
+          createdBy: userId,
+        },
+      });
+    });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
       return {

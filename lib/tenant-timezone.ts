@@ -16,14 +16,35 @@ export function isValidIanaTimeZone(id: string): boolean {
   }
 }
 
+/** Tenant `settings.timeZone` when set and valid; otherwise `undefined` (not the same as explicit UTC). */
+export function getConfiguredTenantTimeZone(settings: unknown): string | undefined {
+  if (!settings || typeof settings !== "object") return undefined;
+  const raw = (settings as Record<string, unknown>).timeZone;
+  if (typeof raw !== "string") return undefined;
+  const id = raw.trim();
+  if (!id || !isValidIanaTimeZone(id)) return undefined;
+  return id;
+}
+
 /** Resolved IANA id for comparisons and Intl; invalid or missing → UTC. */
 export function getTenantTimeZone(settings: unknown): string {
-  if (!settings || typeof settings !== "object") return DEFAULT_TENANT_TIME_ZONE;
-  const raw = (settings as Record<string, unknown>).timeZone;
-  if (typeof raw !== "string") return DEFAULT_TENANT_TIME_ZONE;
-  const id = raw.trim();
-  if (!id || !isValidIanaTimeZone(id)) return DEFAULT_TENANT_TIME_ZONE;
-  return id;
+  return getConfiguredTenantTimeZone(settings) ?? DEFAULT_TENANT_TIME_ZONE;
+}
+
+/**
+ * IANA zone for formatting audit/activity timestamps in the dashboard.
+ * Uses tenant `settings.timeZone` when set; otherwise Vercel’s `x-vercel-ip-timezone` when present;
+ * otherwise UTC (avoids server-local zone on Vercel, which is usually UTC).
+ */
+export function getActivityDisplayTimeZone(
+  settings: unknown,
+  headers?: Readonly<{ get(name: string): string | null | undefined }>
+): string {
+  const configured = getConfiguredTenantTimeZone(settings);
+  if (configured) return configured;
+  const raw = headers?.get("x-vercel-ip-timezone")?.trim();
+  if (raw && isValidIanaTimeZone(raw)) return raw;
+  return DEFAULT_TENANT_TIME_ZONE;
 }
 
 /** Current calendar date `YYYY-MM-DD` in the given IANA time zone. */

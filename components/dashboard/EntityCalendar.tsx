@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { dateFieldCalendarKey } from "@/lib/format";
 
 type Field = {
   id: string;
@@ -46,11 +47,14 @@ export function EntityCalendar({
   entities,
   fields,
   dateField,
+  tenantTimeZone,
 }: {
   moduleSlug: string;
   entities: Entity[];
   fields: Field[];
   dateField: string;
+  /** When set, buckets match {@link formatDateIfApplicable} for date fields in that zone. */
+  tenantTimeZone?: string;
 }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -60,10 +64,8 @@ export function EntityCalendar({
   const byDate = new Map<string, Entity[]>();
   entities.forEach((e) => {
     const raw = (e.data as Record<string, unknown>)?.[dateField];
-    if (raw == null) return;
-    const d = typeof raw === "string" ? new Date(raw) : raw instanceof Date ? raw : null;
-    if (!d || Number.isNaN(d.getTime())) return;
-    const key = dateKey(d);
+    const key = dateFieldCalendarKey(raw, tenantTimeZone);
+    if (!key) return;
     if (!byDate.has(key)) byDate.set(key, []);
     byDate.get(key)!.push(e);
   });

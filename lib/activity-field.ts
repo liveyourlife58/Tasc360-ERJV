@@ -4,6 +4,23 @@ import { prisma } from "@/lib/prisma";
 import { formatEntityEventActorLabel } from "@/lib/entity-event-actor";
 import { formatDateTime } from "@/lib/format";
 import { ACTIVITY_SUMMARY_EVENT_SEPARATOR } from "@/lib/activity-summary-constants";
+import {
+  type ActivityAuditFormatContext,
+  formatEventDataChangesPlainText,
+} from "@/lib/entity-event-field-changes";
+
+export type { ActivityAuditFormatContext } from "@/lib/entity-event-field-changes";
+
+function resolveActivityAuditFormat(
+  auditFormat:
+    | ActivityAuditFormatContext
+    | ((entityId: string) => ActivityAuditFormatContext | undefined)
+    | undefined,
+  entityId: string
+): ActivityAuditFormatContext | undefined {
+  if (!auditFormat) return undefined;
+  return typeof auditFormat === "function" ? auditFormat(entityId) : auditFormat;
+}
 
 export const ACTIVITY_FIELD_DEFAULT_PREVIEW_LIMIT = 10;
 export const ACTIVITY_FIELD_MAX_PREVIEW_LIMIT = 50;
@@ -28,6 +45,37 @@ export function stripActivityFieldValues(
   }
 }
 
+/** One row from `event` in the same shape as each block in {@link loadActivitySummariesForEntities}. */
+export type ActivityEventSummaryInput = {
+  eventType: string;
+  createdAt: Date;
+  data: unknown;
+  createdByUser: { email: string; name: string | null } | null;
+};
+
+/**
+ * Plain-text summary for one audit event — must stay in sync with
+ * {@link loadActivitySummariesForEntities} (list/board activity cells).
+ */
+export function summarizeActivityEventForListCell(
+  ev: ActivityEventSummaryInput,
+  auditCtx: ActivityAuditFormatContext | undefined,
+  formatOptions?: { locale?: string; timeZone?: string }
+): string {
+  const locale = formatOptions?.locale;
+  const timeZone = formatOptions?.timeZone;
+  const actor = formatEntityEventActorLabel(ev.data as Record<string, unknown> | null, ev.createdByUser);
+  const headline = `${ev.eventType.replace(/_/g, " ")} · ${actor}`;
+  const when = formatDateTime(ev.createdAt, locale, timeZone);
+  const changesPlain = auditCtx
+    ? formatEventDataChangesPlainText(ev.data as Record<string, unknown> | null, auditCtx)
+    : "";
+  if (changesPlain) {
+    return `${actor} · ${when}\n${changesPlain}`;
+  }
+  return `${headline}\n${when}`;
+}
+
 /**
  * Load multi-line activity summaries for many entities (list cards, relation modal).
  * Map: entityId → field slug → summary text (newline-separated lines).
@@ -36,7 +84,8 @@ export async function loadActivitySummariesForEntities(
   tenantId: string,
   entityIds: string[],
   activityFields: { slug: string; settings: unknown }[],
-  formatOptions?: { locale?: string; timeZone?: string }
+  formatOptions?: { locale?: string; timeZone?: string },
+  auditFormat?: ActivityAuditFormatContext | ((entityId: string) => ActivityAuditFormatContext | undefined)
 ): Promise<Map<string, Record<string, string>>> {
   const locale = formatOptions?.locale;
   const timeZone = formatOptions?.timeZone;
@@ -52,6 +101,7 @@ export async function loadActivitySummariesForEntities(
 
   await Promise.all(
     ids.map(async (entityId) => {
+      const auditCtx = resolveActivityAuditFormat(auditFormat, entityId);
       const events = await prisma.event.findMany({
         where: { tenantId, entityId },
         orderBy: { createdAt: "desc" },
@@ -71,15 +121,9 @@ export async function loadActivitySummariesForEntities(
           slice.length === 0
             ? "No activity yet."
             : slice
-                .map((ev) => {
-                  const actor = formatEntityEventActorLabel(
-                    ev.data as Record<string, unknown> | null,
-                    ev.createdByUser
-                  );
-                  const headline = `${ev.eventType.replace(/_/g, " ")} · ${actor}`;
-                  const when = formatDateTime(ev.createdAt, locale, timeZone);
-                  return `${headline}\n${when}`;
-                })
+                .map((ev) =>
+                  summarizeActivityEventForListCell(ev, auditCtx, { locale, timeZone })
+                )
                 .join(ACTIVITY_SUMMARY_EVENT_SEPARATOR);
       }
       out.set(entityId, bySlug);

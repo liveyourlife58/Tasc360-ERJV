@@ -126,72 +126,75 @@ export function EntityList({
             const hasInverse = inverseSections && inverseSections.length > 0;
             const editHref = `/dashboard/m/${moduleSlug}/${entity.id}`;
 
-            const dataCells = (
-              <>
-                {columns.map((f) => {
-                  const raw = (entity.data as Record<string, unknown>)[f.slug];
-                  const hl = fieldHighlightClassNameForColumn(f.slug, f.fieldType, raw, f.settings, {
-                    data: entity.data as Record<string, unknown>,
-                    fields,
-                    tenantTimeZone,
-                  });
-                  const inner = formatEntityFieldValue(
-                    raw,
-                    f,
-                    entity,
-                    relationLabels,
-                    tenantUserLabels,
-                    tenantLocale,
-                    tenantTimeZone,
-                    activityCellSummaries
-                  );
-                  return (
-                    <td key={f.id}>
-                      {hl ? (
-                        <span
-                          className={`entity-table-cell-highlight ${hl.className}`}
-                          style={hl.style}
-                        >
-                          {inner}
-                        </span>
-                      ) : (
-                        inner
-                      )}
-                    </td>
-                  );
-                })}
-                {showAmountColumn && (
-                  <td>
-                    {amountNode}
-                    {ticketsSold > 0 && (
-                      <TicketSoldCell
-                        entityId={entity.id}
-                        entityTitle={entityTitle}
-                        ticketsSold={ticketsSold}
-                        allowRefund={allowRefund}
-                      />
-                    )}
-                  </td>
+            const renderedColumnCells = columns.map((f) => {
+              const raw = (entity.data as Record<string, unknown>)[f.slug];
+              const hl = fieldHighlightClassNameForColumn(f.slug, f.fieldType, raw, f.settings, {
+                data: entity.data as Record<string, unknown>,
+                fields,
+                tenantTimeZone,
+              });
+              const inner = formatEntityFieldValue(
+                raw,
+                f,
+                entity,
+                relationLabels,
+                tenantUserLabels,
+                tenantLocale,
+                tenantTimeZone,
+                activityCellSummaries
+              );
+              const wrapped = hl ? (
+                <span className={`entity-table-cell-highlight ${hl.className}`} style={hl.style}>
+                  {inner}
+                </span>
+              ) : (
+                inner
+              );
+              return { key: f.id, wrapped };
+            });
+
+            const amountCell = showAmountColumn ? (
+              <td key="__amount__">
+                {amountNode}
+                {ticketsSold > 0 && (
+                  <TicketSoldCell
+                    entityId={entity.id}
+                    entityTitle={entityTitle}
+                    ticketsSold={ticketsSold}
+                    allowRefund={allowRefund}
+                  />
                 )}
-              </>
-            );
+              </td>
+            ) : null;
 
             if (hasInverse) {
+              const firstCellInner = renderedColumnCells[0]?.wrapped ?? null;
+              const restCells = (
+                <>
+                  {renderedColumnCells.slice(1).map((c) => (
+                    <td key={c.key}>{c.wrapped}</td>
+                  ))}
+                  {amountCell}
+                </>
+              );
               return (
                 <EntityListRowWithBacklinks
                   key={entity.id}
-                  colSpan={colSpan + 1}
+                  colSpan={colSpan}
                   inverseSections={inverseSections}
                   editHref={editHref}
-                >
-                  {dataCells}
-                </EntityListRowWithBacklinks>
+                  firstCellInner={firstCellInner}
+                  restCells={restCells}
+                />
               );
             }
 
             return (
               <EntityListClickableRow key={entity.id} href={editHref}>
-                {dataCells}
+                {renderedColumnCells.map((c) => (
+                  <td key={c.key}>{c.wrapped}</td>
+                ))}
+                {amountCell}
               </EntityListClickableRow>
             );
           })

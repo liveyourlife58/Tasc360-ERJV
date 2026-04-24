@@ -4,6 +4,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getTenantLocale, formatDateTime } from "@/lib/format";
+import { getActivityDisplayTimeZone } from "@/lib/tenant-timezone";
 import { ActivityFilters } from "./ActivityFilters";
 import { formatEntityEventActorLabel } from "@/lib/entity-event-actor";
 import { readFieldChangesFromEventData, readMetadataChangesFromEventData } from "@/lib/entity-event-field-changes";
@@ -73,6 +74,7 @@ export default async function ActivityPage({
     }),
   ]);
   const locale = getTenantLocale(tenant?.settings ?? null);
+  const activityTz = getActivityDisplayTimeZone(tenant?.settings, h);
 
   return (
     <div>
@@ -127,7 +129,7 @@ export default async function ActivityPage({
           ) : (
             events.map((e) => (
               <tr key={e.id}>
-                <td>{formatDateTime(e.createdAt, locale)}</td>
+                <td>{formatDateTime(e.createdAt, locale, activityTz)}</td>
                 <td>
                   <div>{e.eventType}</div>
                   {(() => {

@@ -125,8 +125,12 @@ export default async function DashboardLayout({
       >
         Skip to main content
       </a>
-      <Sidebar tenantId={tenantId} tenant={tenant} dashboardSettings={dashboardSettings} dashboardFeatures={dashboardFeatures} tenantSlug={tenant?.slug} pathname={pathname} showDeveloperLinks={showDeveloperLinks} showPlatformAdminLink={showPlatformAdminLink} />
-      <main id="dashboard-main-content" className="dashboard-main flex-1 min-w-0 ml-60 p-6 md:pl-8 md:pr-8 max-w-[1400px]" tabIndex={-1}>
+      <Sidebar tenantId={tenantId} tenant={tenant} dashboardSettings={dashboardSettings} dashboardFeatures={dashboardFeatures} tenantSlug={tenant?.slug} showDeveloperLinks={showDeveloperLinks} showPlatformAdminLink={showPlatformAdminLink} />
+      <main
+        id="dashboard-main-content"
+        className="dashboard-main flex-1 min-w-0 w-full max-w-none ml-60 p-6 md:pl-8 md:pr-8"
+        tabIndex={-1}
+      >
         <DashboardSidebarToggle />
         {isPastDueWithGrace && (
           <div className="flex flex-wrap items-center gap-3 p-4 mb-4 bg-amber-100 text-amber-900 rounded-lg border border-amber-200" role="alert">

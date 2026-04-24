@@ -24,7 +24,7 @@ import {
   parseListColumnSortParams,
   sortEntitiesForModuleList,
 } from "@/lib/entity-list-sort";
-import { getTenantTimeZone } from "@/lib/tenant-timezone";
+import { getActivityDisplayTimeZone, getTenantTimeZone } from "@/lib/tenant-timezone";
 import { getTenantLocale } from "@/lib/format";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { isPlatformAdmin } from "@/lib/developer-setup";
@@ -41,7 +41,7 @@ import { getModuleEntityListCreatedAtOrder, getModulePaymentType } from "@/lib/m
 import { getInverseBacklinksByTargetEntityIds } from "@/lib/inverse-relation-backlinks";
 import { fieldSlugsShownInEntityList } from "@/lib/field-entity-list";
 import { formatTenantUserOptionLabel } from "@/lib/tenant-user-field";
-import { loadActivitySummariesForEntities } from "@/lib/activity-field";
+import { loadActivitySummariesForEntities, type ActivityAuditFormatContext } from "@/lib/activity-field";
 
 export default async function ModuleEntityListPage({
   params,
@@ -164,7 +164,10 @@ export default async function ModuleEntityListPage({
   const deadlineSortSpecs = getModuleDeadlineFieldSortSpecs(module_.fields);
   const tenantTz = getTenantTimeZone(tenant?.settings);
   const tenantLocale = getTenantLocale(tenant?.settings ?? null);
-  const activityFormatOpts = { locale: tenantLocale, timeZone: tenantTz };
+  const activityFormatOpts = {
+    locale: tenantLocale,
+    timeZone: getActivityDisplayTimeZone(tenant?.settings, h),
+  };
   const filteredEntities = sortEntitiesForModuleList(
     filterEntitiesByKeyword(afterDataFilters, searchQuery),
     deadlineSortSpecs,
@@ -256,6 +259,17 @@ export default async function ModuleEntityListPage({
       ? module_.fields.filter((f) => f.fieldType === "activity" && boardCardFieldSlugs.includes(f.slug))
       : [];
 
+  const activityAuditFormat: ActivityAuditFormatContext | undefined =
+    !isDeletedView &&
+    ((viewType === "list" && activityFieldsInListColumns.length > 0) ||
+      (viewType === "board" && activityFieldsOnBoardCards.length > 0))
+      ? {
+          fieldTypeBySlug: Object.fromEntries(module_.fields.map((f) => [f.slug, f.fieldType])),
+          relationOptionsBySlug: relationOptionsMap,
+          tenantUserLabels: needsTenantUsers ? tenantUserLabels : undefined,
+        }
+      : undefined;
+
   let activityCellSummaries: Record<string, Record<string, string>> = {};
   if (
     !isDeletedView &&
@@ -267,7 +281,8 @@ export default async function ModuleEntityListPage({
       tenantId,
       paginatedEntities.map((e) => e.id),
       activityFieldsInListColumns.map((f) => ({ slug: f.slug, settings: f.settings })),
-      activityFormatOpts
+      activityFormatOpts,
+      activityAuditFormat
     );
     activityCellSummaries = Object.fromEntries(activityMap);
   }
@@ -281,7 +296,8 @@ export default async function ModuleEntityListPage({
       tenantId,
       paginatedEntities.map((e) => e.id),
       activityFieldsOnBoardCards.map((f) => ({ slug: f.slug, settings: f.settings })),
-      activityFormatOpts
+      activityFormatOpts,
+      activityAuditFormat
     );
     activityCellSummaries = Object.fromEntries(activityMap);
   }
@@ -528,6 +544,7 @@ export default async function ModuleEntityListPage({
           entities={entityListProps.entities}
           fields={entityListProps.fields}
           dateField={dateField}
+          tenantTimeZone={tenantTz}
         />
       ) : isDeletedView ? (
         <table className="entity-table">

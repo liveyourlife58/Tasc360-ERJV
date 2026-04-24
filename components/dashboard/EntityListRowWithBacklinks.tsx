@@ -5,17 +5,22 @@ import { InverseRelationBacklinks } from "@/components/dashboard/InverseRelation
 import { EntityListClickableRow } from "@/components/dashboard/EntityListClickableRow";
 import type { InverseBacklinkSection } from "@/lib/inverse-relation-backlinks";
 
+/** Row for expandable backlinks: chevron is inlined at the start of the first cell (not a trailing column). */
 export function EntityListRowWithBacklinks({
   colSpan,
   inverseSections,
   editHref,
-  children,
+  firstCellInner,
+  restCells,
 }: {
+  /** Data columns including amount column (no extra chevron column). */
   colSpan: number;
   inverseSections: InverseBacklinkSection[];
   editHref: string;
-  /** Data cells and optional amount cell (`<td>`…`</td>` only). */
-  children: ReactNode;
+  /** Inner content for the first data cell (wrapped here in `<td>` alongside the chevron). */
+  firstCellInner: ReactNode;
+  /** Remaining `<td>` cells as a fragment. */
+  restCells: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const hasBacklinks = inverseSections.length > 0;
@@ -23,30 +28,29 @@ export function EntityListRowWithBacklinks({
   return (
     <>
       <EntityListClickableRow href={editHref}>
-        {children}
-        <td style={{ whiteSpace: "nowrap", verticalAlign: "middle" }}>
-          {hasBacklinks && (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpen((v) => !v);
-              }}
-              aria-expanded={open}
-              aria-label={open ? "Hide linked records" : "Show linked records"}
-              title="Linked records"
-              style={{
-                padding: "0.2rem 0.4rem",
-                fontSize: "0.7rem",
-                lineHeight: 1.2,
-                minWidth: "1.75rem",
-              }}
-            >
-              {open ? "▼" : "▶"}
-            </button>
-          )}
+        <td>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", minWidth: 0 }}>
+            {hasBacklinks ? (
+              <button
+                type="button"
+                className="entity-list-backlink-toggle"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen((v) => !v);
+                }}
+                aria-expanded={open}
+                aria-label={open ? "Hide linked records" : "Show linked records"}
+                title="Linked records"
+              >
+                {open ? "▼" : "▶"}
+              </button>
+            ) : null}
+            <span className="entity-list-backlink-first-cell-content" style={{ minWidth: 0 }}>
+              {firstCellInner}
+            </span>
+          </span>
         </td>
+        {restCells}
       </EntityListClickableRow>
       {hasBacklinks && open && (
         <tr className="entity-list-inverse-backlinks-row">

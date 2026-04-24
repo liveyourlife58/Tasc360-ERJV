@@ -39,7 +39,7 @@ export function DeleteEntityButton({
       <ConfirmModal
         open={open}
         title="Delete record"
-        message="Delete this record? You cannot undo this."
+        message="Delete this record? It will be removed from lists but can be restored by an admin."
         confirmLabel="Delete"
         variant="danger"
         onConfirm={handleConfirm}

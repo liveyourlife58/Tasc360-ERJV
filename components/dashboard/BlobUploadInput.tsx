@@ -19,6 +19,8 @@ type Props = {
   className?: string;
   /** Whether the URL input is required */
   required?: boolean;
+  /** Fired when the URL value changes (manual edit or after successful upload); used for per-field auto-save. */
+  onValueChange?: (value: string) => void;
 };
 
 export function BlobUploadInput({
@@ -30,6 +32,7 @@ export function BlobUploadInput({
   id,
   className = "",
   required = false,
+  onValueChange,
 }: Props) {
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -50,6 +53,7 @@ export function BlobUploadInput({
       }
       if (result.url && urlInputRef.current) {
         urlInputRef.current.value = result.url;
+        onValueChange?.(result.url);
       }
     } finally {
       setUploading(false);
@@ -70,6 +74,7 @@ export function BlobUploadInput({
         className="form-control"
         style={{ marginBottom: "0.5rem" }}
         required={required}
+        onChange={onValueChange ? (e) => onValueChange(e.target.value) : undefined}
       />
       <div className="blob-upload-row">
         <label className="blob-upload-label">
